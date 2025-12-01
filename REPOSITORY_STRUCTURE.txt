@@ -1,0 +1,74 @@
+movement-chain-ml/
+├── .github/
+│   └── workflows/
+│       └── pr-validation.yml          # GitHub Actions PR validation (3 jobs)
+│
+├── .husky/                             # Git hooks directory
+│   ├── commit-msg                      # Validates commit message format
+│   ├── pre-commit                      # Runs linters, formatters, strips notebooks
+│   └── pre-push                        # Runs type checks and tests
+│
+├── src/                                # Source code directory
+│   └── __init__.py                     # Package initialization
+│
+├── tests/                              # Test directory
+│   ├── __init__.py                     # Test package initialization
+│   └── test_example.py                 # Example test cases (3 tests)
+│
+├── notebooks/                          # Jupyter notebooks (create as needed)
+│
+├── .gitignore                          # Git ignore rules (Python/ML/Node)
+├── .lintstagedrc.json                 # Lint-staged configuration
+├── commitlint.config.js               # Commit message validation rules
+├── package.json                        # Node.js dependencies and scripts
+├── pyproject.toml                      # Python tool configuration
+├── requirements.txt                    # Python production dependencies
+├── requirements-dev.txt               # Python development dependencies
+│
+├── setup.sh                            # Automated setup script (executable)
+│
+├── README.md                           # Project overview and quick start
+├── HOOKS_SETUP.md                     # Complete Git hooks documentation (600+ lines)
+├── SETUP_INSTRUCTIONS.md              # Detailed setup guide (200+ lines)
+├── IMPLEMENTATION_SUMMARY.md          # Technical implementation details
+├── QUICK_REFERENCE.md                 # Quick command reference card
+└── REPOSITORY_STRUCTURE.txt           # This file
+
+STATISTICS:
+-----------
+Total Files: 20
+Total Size: 272KB
+Configuration: ~1,500 lines
+Documentation: ~1,200 lines
+Hooks: ~100 lines
+Tests: 3 example tests
+
+KEY FEATURES:
+-------------
+✓ Automatic code formatting (Black)
+✓ Automatic linting (Ruff)
+✓ Import sorting (isort)
+✓ Type checking (mypy)
+✓ Test coverage tracking (pytest-cov)
+✓ Notebook output stripping (nbstripout)
+✓ Conventional Commits enforcement
+✓ Pre-commit validation
+✓ Pre-push testing
+✓ CI/CD PR validation (3 jobs)
+✓ Comprehensive documentation
+
+EXECUTABLE FILES:
+-----------------
+• .husky/commit-msg (755)
+• .husky/pre-commit (755)
+• .husky/pre-push (755)
+• setup.sh (755)
+
+NEXT STEPS:
+-----------
+1. Run: npm install
+2. Run: python3 -m venv venv
+3. Run: source venv/bin/activate
+4. Run: pip install -r requirements-dev.txt
+5. Test: git commit --allow-empty -m "chore: test hooks"
+6. Start coding in src/

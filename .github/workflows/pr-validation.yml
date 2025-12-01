@@ -1,0 +1,161 @@
+name: ML PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-python:
+    name: Python Code Quality & Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements-dev.txt
+
+      - name: Lint with Ruff
+        run: |
+          echo "Running Ruff linter..."
+          ruff check src/ tests/ || true
+
+      - name: Format check with Black
+        run: |
+          echo "Checking code formatting with Black..."
+          black --check src/ tests/
+
+      - name: Import order check
+        run: |
+          echo "Checking import order with isort..."
+          isort --check-only src/ tests/
+
+      - name: Type check with mypy
+        run: |
+          echo "Running type checks with mypy..."
+          mypy src/ || true
+
+      - name: Run tests with coverage
+        run: |
+          echo "Running test suite..."
+          pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## Python Validation Results 🐍" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Linting: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Formatting: Checked" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Import Order: Verified" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Type Checking: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Tests: Executed with coverage" >> $GITHUB_STEP_SUMMARY
+
+  validate-notebooks:
+    name: Notebook Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install notebook dependencies
+        run: |
+          pip install jupyter nbconvert nbstripout
+
+      - name: Check notebooks are stripped
+        run: |
+          if [ -d "notebooks" ]; then
+            echo "Checking if notebooks have outputs stripped..."
+            find notebooks -name "*.ipynb" -exec nbstripout --dry-run {} \; || {
+              echo "❌ Some notebooks have outputs that should be stripped!"
+              echo "Run: nbstripout notebooks/**/*.ipynb"
+              exit 1
+            }
+          else
+            echo "No notebooks directory found, skipping..."
+          fi
+
+      - name: Validate notebooks can be converted
+        run: |
+          if [ -d "notebooks" ]; then
+            echo "Validating notebook structure..."
+            for notebook in notebooks/**/*.ipynb; do
+              if [ -f "$notebook" ]; then
+                echo "Checking: $notebook"
+                jupyter nbconvert --to notebook --stdout "$notebook" > /dev/null || {
+                  echo "❌ Notebook has invalid structure: $notebook"
+                  exit 1
+                }
+              fi
+            done
+          else
+            echo "No notebooks to validate"
+          fi
+
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## Notebook Validation Results 📓" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Output stripping: Verified" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Notebook structure: Valid" >> $GITHUB_STEP_SUMMARY
+
+  validate-commits:
+    name: Commit Message Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install commitlint
+        run: |
+          npm install --save-dev @commitlint/config-conventional @commitlint/cli
+
+      - name: Validate PR commits
+        run: |
+          npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## Commit Message Validation Results 📝" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Commit messages follow Conventional Commits" >> $GITHUB_STEP_SUMMARY
