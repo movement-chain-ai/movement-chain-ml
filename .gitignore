@@ -4,43 +4,103 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
-env/
-ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Jupyter
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.log
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter Notebooks
 .ipynb_checkpoints
+*/.ipynb_checkpoints/*
 *.ipynb_checkpoints
 
-# ML models & data
-*.pth
-*.onnx
-*.tflite
-*.h5
-*.pb
-data/raw/
-data/processed/
-datasets/
-checkpoints/
-wandb/
-
-# Training artifacts
-logs/
-runs/
-outputs/
-mlruns/
-lightning_logs/
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# macOS
+*~
 .DS_Store
 
-# Distribution
-dist/
-build/
-*.egg-info/
+# Node.js (for husky/commitlint)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ML/Data Science specific
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.model
+*.ckpt
+*.pth
+*.pt
+models/
+data/
+datasets/
+*.csv
+*.parquet
+*.feather
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+*.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp

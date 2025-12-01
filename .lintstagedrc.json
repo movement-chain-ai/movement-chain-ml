@@ -1,0 +1,10 @@
+{
+  "*.py": [
+    "black",
+    "ruff check --fix",
+    "isort"
+  ],
+  "*.ipynb": [
+    "nbstripout"
+  ]
+}
