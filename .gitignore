@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# ML models & data
+*.pth
+*.onnx
+*.tflite
+*.h5
+*.pb
+data/raw/
+data/processed/
+datasets/
+checkpoints/
+wandb/
+
+# Training artifacts
+logs/
+runs/
+outputs/
+mlruns/
+lightning_logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Distribution
+dist/
+build/
+*.egg-info/
