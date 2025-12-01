@@ -230,7 +230,18 @@ Branch protection requires:
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) file for details.
+**Status:** License decision in progress
+
+We are currently evaluating open source license options (MIT or Apache 2.0) for this project.
+A license will be added by **December 15, 2025**.
+
+Until a license is added, all rights are reserved under default copyright law.
+
+**Under Consideration:**
+- MIT License (maximum simplicity and adoption)
+- Apache License 2.0 (explicit patent protection)
+
+See our [license comparison guide](https://movement-chain-ai.github.io/system-documentation/latest/resources/open-source-license-comparison/) for details.
 
 ## Documentation
 
