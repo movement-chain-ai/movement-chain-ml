@@ -10,9 +10,8 @@ Date: 2026-01-14
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass, asdict, field
+from typing import List, Dict, Tuple, Optional, ClassVar
 from pathlib import Path
 import json
 from datetime import datetime
@@ -27,7 +26,7 @@ class IMUConfig:
     """IMU 配置参数"""
 
     # MPU6050 灵敏度设置 (LSB per °/s)
-    GYRO_SENSITIVITY = {
+    GYRO_SENSITIVITY: ClassVar[Dict[int, float]] = {
         250: 131.0,  # ±250°/s
         500: 65.5,  # ±500°/s
         1000: 32.8,  # ±1000°/s
@@ -58,6 +57,23 @@ class SwingPhase:
     duration_ms: float
     peak_gyro_dps: float
 
+    def __post_init__(self) -> None:
+        """Validate invariants at construction time."""
+        if self.end_idx < self.start_idx:
+            raise ValueError(
+                f"SwingPhase '{self.name}': end_idx ({self.end_idx}) < start_idx ({self.start_idx})"
+            )
+        if self.end_time_ms < self.start_time_ms:
+            raise ValueError(
+                f"SwingPhase '{self.name}': end_time_ms ({self.end_time_ms}) < start_time_ms ({self.start_time_ms})"
+            )
+        if self.peak_gyro_dps < 0 or (
+            isinstance(self.peak_gyro_dps, float) and np.isnan(self.peak_gyro_dps)
+        ):
+            raise ValueError(
+                f"SwingPhase '{self.name}': invalid peak_gyro_dps ({self.peak_gyro_dps})"
+            )
+
 
 @dataclass
 class SwingMetrics:
@@ -68,7 +84,7 @@ class SwingMetrics:
     backswing_duration_ms: float
     downswing_duration_ms: float
     total_swing_time_ms: float
-    tempo_ratio: float
+    tempo_ratio: Optional[float]  # Can be None if downswing_duration is 0
 
     # 新增 2 项
     wrist_release_point_pct: Optional[float]  # 手腕释放点 (下杆完成百分比)
@@ -81,36 +97,85 @@ class SwingMetrics:
     acceleration_level: str
     overall_level: str
 
+    def __post_init__(self) -> None:
+        """Validate invariants at construction time."""
+        if self.peak_angular_velocity_dps < 0:
+            raise ValueError(
+                f"peak_angular_velocity_dps must be non-negative, got {self.peak_angular_velocity_dps}"
+            )
+        if self.backswing_duration_ms < 0:
+            raise ValueError(
+                f"backswing_duration_ms must be non-negative, got {self.backswing_duration_ms}"
+            )
+        if self.downswing_duration_ms < 0:
+            raise ValueError(
+                f"downswing_duration_ms must be non-negative, got {self.downswing_duration_ms}"
+            )
+        if self.wrist_release_point_pct is not None:
+            if not (0 <= self.wrist_release_point_pct <= 100):
+                raise ValueError(
+                    f"wrist_release_point_pct must be in [0, 100], got {self.wrist_release_point_pct}"
+                )
+
 
 # ============================================================
 # 数据加载与预处理
 # ============================================================
 
 
-def load_imu_data(filepath: str, skip_header_lines: int = 5) -> pd.DataFrame:
+def load_imu_data(filepath: str) -> pd.DataFrame:
     """
     加载 IMU CSV 数据
 
     Args:
         filepath: CSV 文件路径
-        skip_header_lines: 跳过的注释行数 (# 开头的行)
 
     Returns:
         DataFrame with columns: timestamp, AcX, AcY, AcZ, GyX, GyY, GyZ, Tmp
+
+    Raises:
+        FileNotFoundError: If the file does not exist
+        ValueError: If the file cannot be parsed or contains no valid data
     """
-    # 读取文件，跳过注释行
-    df = pd.read_csv(
-        filepath,
-        comment="#",
-        names=["timestamp", "AcX", "AcY", "AcZ", "GyX", "GyY", "GyZ", "Tmp"],
-        on_bad_lines="skip",  # 跳过格式错误的行
-    )
+    # Validate file exists
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(f"IMU data file not found: {filepath}")
+    if not path.is_file():
+        raise ValueError(f"Path is not a file: {filepath}")
+
+    # Read file with error handling
+    try:
+        # Count rows before skipping bad lines
+        with open(filepath, "r", encoding="utf-8") as f:
+            total_lines = sum(1 for line in f if not line.startswith("#"))
+
+        df = pd.read_csv(
+            filepath,
+            comment="#",
+            names=["timestamp", "AcX", "AcY", "AcZ", "GyX", "GyY", "GyZ", "Tmp"],
+            on_bad_lines="skip",  # 跳过格式错误的行
+        )
+
+        # Log if rows were skipped
+        skipped_lines = total_lines - len(df)
+        if skipped_lines > 0:
+            print(f"⚠️ 警告: 跳过 {skipped_lines} 行格式错误的数据")
+
+    except pd.errors.ParserError as e:
+        raise ValueError(f"Failed to parse CSV file {filepath}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Encoding error reading {filepath}. Expected UTF-8: {e}") from e
 
     # 转换时间戳为 datetime
+    original_count = len(df)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
     # 删除时间戳无效的行
     df = df.dropna(subset=["timestamp"])
+    timestamp_dropped = original_count - len(df)
+    if timestamp_dropped > 0:
+        print(f"⚠️ 警告: 删除 {timestamp_dropped} 行无效时间戳数据")
 
     # 确保数值列是数值类型
     numeric_cols = ["AcX", "AcY", "AcZ", "GyX", "GyY", "GyZ", "Tmp"]
@@ -118,7 +183,24 @@ def load_imu_data(filepath: str, skip_header_lines: int = 5) -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # 删除包含无效数值的行 (例如 -1 表示传感器错误)
+    before_filter = len(df)
     df = df[(df["GyX"] != -1) & (df["GyY"] != -1) & (df["GyZ"] != -1)]
+    sensor_errors = before_filter - len(df)
+    if sensor_errors > 0:
+        print(f"⚠️ 警告: 删除 {sensor_errors} 行传感器错误数据 (值为 -1)")
+
+    # Validate we have enough data
+    if len(df) == 0:
+        raise ValueError(
+            f"No valid IMU data found in {filepath}. "
+            "Check that the file contains valid timestamps and sensor readings."
+        )
+
+    if len(df) < 10:
+        raise ValueError(
+            f"Insufficient data: only {len(df)} valid rows found in {filepath}. "
+            "Need at least 10 samples for analysis."
+        )
 
     # 计算相对时间 (毫秒)
     df["time_ms"] = (df["timestamp"] - df["timestamp"].iloc[0]).dt.total_seconds() * 1000
@@ -128,7 +210,13 @@ def load_imu_data(filepath: str, skip_header_lines: int = 5) -> pd.DataFrame:
 
     print(f"✅ 加载数据: {len(df)} 行有效数据")
     print(f"   时间范围: {df['time_ms'].iloc[0]:.1f}ms - {df['time_ms'].iloc[-1]:.1f}ms")
-    print(f"   采样率估计: {1000 / df['time_ms'].diff().median():.1f} Hz")
+
+    # Safe sampling rate calculation (avoid division by zero)
+    time_diff_median = df["time_ms"].diff().median()
+    if time_diff_median > 0:
+        print(f"   采样率估计: {1000 / time_diff_median:.1f} Hz")
+    else:
+        print("   采样率估计: 无法计算 (时间差为0)")
 
     return df
 
@@ -143,7 +231,15 @@ def convert_to_dps(df: pd.DataFrame, gyro_range: int = 2000) -> pd.DataFrame:
 
     Returns:
         添加了 gyro_x_dps, gyro_y_dps, gyro_z_dps, gyro_mag_dps 列的 DataFrame
+
+    Raises:
+        ValueError: If gyro_range is not a valid value
     """
+    # Validate gyro_range parameter
+    if gyro_range not in IMUConfig.GYRO_SENSITIVITY:
+        valid_ranges = list(IMUConfig.GYRO_SENSITIVITY.keys())
+        raise ValueError(f"Invalid gyro_range: {gyro_range}. Valid options: {valid_ranges}")
+
     sensitivity = IMUConfig.GYRO_SENSITIVITY[gyro_range]
 
     df["gyro_x_dps"] = df["GyX"] / sensitivity
@@ -178,14 +274,26 @@ def isolate_swing(
     通过找到最大角速度点(Impact)，然后截取前后一定时间窗口的数据。
 
     Args:
-        df: 处理后的数据 DataFrame (需要有 gyro_mag_dps)
+        df: 处理后的数据 DataFrame (需要有 gyro_mag_dps 和 time_ms)
         window_before_ms: Impact 前保留的时间 (毫秒)，默认 2000ms
         window_after_ms: Impact 后保留的时间 (毫秒)，默认 1500ms
         min_peak_velocity: 最小峰值速度阈值，低于此值认为没有有效挥杆
 
     Returns:
         (隔离后的 DataFrame, 隔离信息字典)
+
+    Raises:
+        ValueError: If required columns are missing from DataFrame
     """
+    # Validate required columns exist
+    required_cols = ["gyro_mag_dps", "time_ms"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"DataFrame missing required columns: {missing}. "
+            "Did you call convert_to_dps() first?"
+        )
+
     # 找到最大角速度点 (Impact)
     impact_idx = df["gyro_mag_dps"].idxmax()
     peak_velocity = df.loc[impact_idx, "gyro_mag_dps"]
@@ -241,7 +349,7 @@ def isolate_swing(
 # ============================================================
 
 
-def detect_swing_phases(df: pd.DataFrame, config: IMUConfig = None) -> List[SwingPhase]:
+def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) -> List[SwingPhase]:
     """
     检测挥杆的 8 个阶段
 
@@ -322,6 +430,7 @@ def detect_swing_phases(df: pd.DataFrame, config: IMUConfig = None) -> List[Swin
         peak_velocity = gyro_mag[impact_idx]
     else:
         # 如果没找到 Top，直接找全局峰值
+        print("⚠️ 警告: 无法通过零交叉检测 'Top' 阶段。" "使用峰值速度估算，结果可能不准确。")
         impact_idx = np.argmax(gyro_mag)
         peak_velocity = gyro_mag[impact_idx]
         # 估计 Top 位置（峰值前的某个点）
@@ -565,8 +674,14 @@ def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetric
     downswing_duration = impact_time - top_time
     total_swing_time = impact_time - address_time
 
-    # 节奏比
-    tempo_ratio = backswing_duration / downswing_duration if downswing_duration > 0 else 0
+    # 节奏比 (None if downswing_duration is 0 or negative)
+    if downswing_duration <= 0:
+        print(
+            f"⚠️ 警告: 下杆时长无效 ({downswing_duration}ms)。" "阶段检测可能失败，节奏比无法计算。"
+        )
+        tempo_ratio: Optional[float] = None
+    else:
+        tempo_ratio = backswing_duration / downswing_duration
 
     # ============================================================
     # 新增指标计算
@@ -589,7 +704,9 @@ def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetric
         velocity_level = "职业"
 
     # 节奏比评估
-    if tempo_ratio < 2.0 or tempo_ratio > 5.0:
+    if tempo_ratio is None:
+        tempo_level = "无数据"
+    elif tempo_ratio < 2.0 or tempo_ratio > 5.0:
         tempo_level = "初学者"
     elif 2.0 <= tempo_ratio < 2.5:
         tempo_level = "业余"
@@ -639,7 +756,7 @@ def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetric
         backswing_duration_ms=round(backswing_duration, 1),
         downswing_duration_ms=round(downswing_duration, 1),
         total_swing_time_ms=round(total_swing_time, 1),
-        tempo_ratio=round(tempo_ratio, 2),
+        tempo_ratio=round(tempo_ratio, 2) if tempo_ratio is not None else None,
         wrist_release_point_pct=wrist_release_point,
         acceleration_time_ms=acceleration_time,
         velocity_level=velocity_level,
@@ -661,7 +778,7 @@ def plot_swing_analysis(
     df: pd.DataFrame,
     phases: List[SwingPhase],
     metrics: SwingMetrics,
-    output_path: str = None,
+    output_path: Optional[str] = None,
     show_plot: bool = True,
 ) -> None:
     """
@@ -795,8 +912,15 @@ def plot_swing_analysis(
     plt.tight_layout()
 
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
-        print(f"✅ 图表已保存: {output_path}")
+        try:
+            plt.savefig(output_path, dpi=150, bbox_inches="tight")
+            print(f"✅ 图表已保存: {output_path}")
+        except PermissionError:
+            print(f"❌ 错误: 无法写入 {output_path}，权限被拒绝")
+            raise
+        except OSError as e:
+            print(f"❌ 错误: 无法保存图表到 {output_path}: {e}")
+            raise
 
     if show_plot:
         plt.show()
@@ -888,9 +1012,16 @@ def generate_report(
         report["isolation"] = isolation_info
 
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-        print(f"✅ 报告已保存: {output_path}")
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+            print(f"✅ 报告已保存: {output_path}")
+        except PermissionError:
+            print(f"❌ 错误: 无法写入 {output_path}，权限被拒绝")
+            raise
+        except OSError as e:
+            print(f"❌ 错误: 无法保存报告到 {output_path}: {e}")
+            raise
 
     return report
 
