@@ -1,8 +1,8 @@
 # Code quality
-black==24.0.0
-ruff==0.3.0
-isort==5.13.0
-mypy==1.8.0
+black>=24.1.0
+ruff>=0.3.0
+isort>=5.13.0
+mypy>=1.8.0
 
 # Testing
 pytest==8.0.0
