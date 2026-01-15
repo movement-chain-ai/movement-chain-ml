@@ -10,6 +10,7 @@ Date: 2026-01-14
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Tuple, Optional, ClassVar
 from pathlib import Path
@@ -33,8 +34,8 @@ class IMUConfig:
         2000: 16.4,  # ±2000°/s
     }
 
-    # 默认使用 ±2000°/s，但会提供选项
-    gyro_range: int = 2000
+    # 默认使用 ±500°/s (匹配 Arduino firmware 设置)
+    gyro_range: int = 500
 
     # 阶段检测阈值
     address_threshold_dps: float = 30.0  # 静止判定阈值
@@ -353,18 +354,17 @@ def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) ->
     """
     检测挥杆的 8 个阶段
 
-    基于角速度特征检测：
-    1. Address: 静止期 (gyro < threshold)
-    2. Takeaway: 开始运动 (gyro 开始增大)
-    3. Backswing: 上杆期 (gyro 持续增大，方向为正)
-    4. Top: 顶点 (gyro 零交叉，从正变负)
-    5. Transition: 转换期 (零交叉后的短暂期间)
-    6. Downswing: 下杆期 (gyro 负值快速增大)
-    7. Impact: 击球 (gyro 达到负峰值)
-    8. Follow-through: 收杆 (gyro 减速回归)
+    使用峰值+谷值检测算法 (v2.0):
+    1. Address: 静止期 (gyro_mag < threshold)
+    2. Impact: 全局峰值 (gyro_mag 最大值 = 击球瞬间)
+    3. Top: Impact 前的局部谷值 (gyro_mag 最小值 = 顶点静止)
+    4. 其他阶段根据 Top 和 Impact 推算
+
+    注: v1.0 使用零交叉检测 Top，但对传感器方向敏感，已弃用。
+    v2.0 使用形态学方法 (峰/谷)，不依赖信号符号，更 robust。
 
     Args:
-        df: 处理后的数据 DataFrame (需要有 gyro_mag_dps 和 gyro_y_dps)
+        df: 处理后的数据 DataFrame (需要有 gyro_mag_dps)
         config: IMU 配置参数
 
     Returns:
@@ -375,7 +375,6 @@ def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) ->
 
     phases = []
     gyro_mag = df["gyro_mag_dps"].values
-    gyro_y = df["gyro_y_dps"].values  # 主要旋转轴
     time_ms = df["time_ms"].values
     n = len(df)
 
@@ -405,36 +404,41 @@ def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) ->
         )
 
     # ============================================================
-    # 2. 检测 Top (顶点) - 零交叉检测
+    # 2. 检测 Impact (峰值) - 先找全局最大值
     # ============================================================
-    # 寻找 gyro_y 从正变负的零交叉点
-    top_idx = None
-    for i in range(address_end + 10, n - 10):
-        # 检查是否是从正变负的零交叉
-        if gyro_y[i - 1] > 0 and gyro_y[i] < 0:
-            # 验证这是真正的顶点（之前一段时间都是正值）
-            prev_window = gyro_y[max(0, i - 20) : i]
-            if np.mean(prev_window) > 50:  # 之前确实在上杆
-                top_idx = i
-                break
+    # 使用峰值检测而非零交叉，更robust
+    impact_idx = int(np.argmax(gyro_mag))
+    peak_velocity = gyro_mag[impact_idx]
 
     # ============================================================
-    # 3. 检测 Impact (峰值) - 在 Top 之后找最大值
+    # 3. 检测 Top (顶点) - 在 Impact 之前找局部最小值 (谷)
     # ============================================================
-    if top_idx is not None:
-        # 在 Top 之后寻找峰值
-        search_start = top_idx
-        search_end = min(n, top_idx + int(n * 0.4))  # Top 后 40% 的范围内
+    # 搜索范围: Address 结束到 Impact 之间
+    search_start = address_end + 5  # 跳过 Address 末端的噪声
+    search_end = impact_idx - 5  # 留一点缓冲
 
-        impact_idx = search_start + np.argmax(gyro_mag[search_start:search_end])
-        peak_velocity = gyro_mag[impact_idx]
+    if search_end > search_start:
+        # 在 Impact 之前的区间搜索谷值
+        search_window = gyro_mag[search_start:search_end]
+
+        # 使用 find_peaks 找谷值 (对信号取负找峰)
+        # distance: 谷之间最小间隔，避免噪声产生的假谷
+        # prominence: 谷的显著程度，过滤微小波动
+        valleys, _ = find_peaks(
+            -search_window,
+            distance=15,  # 约 200ms @ 77Hz
+            prominence=20,  # 谷至少比周围低 20°/s
+        )
+
+        if len(valleys) > 0:
+            # 取最后一个显著谷值作为 Top (离 Impact 最近的)
+            top_idx = search_start + valleys[-1]
+        else:
+            # Fallback: 如果没找到谷，取区间最小值
+            top_idx = search_start + int(np.argmin(search_window))
     else:
-        # 如果没找到 Top，直接找全局峰值
-        print("⚠️ 警告: 无法通过零交叉检测 'Top' 阶段。" "使用峰值速度估算，结果可能不准确。")
-        impact_idx = np.argmax(gyro_mag)
-        peak_velocity = gyro_mag[impact_idx]
-        # 估计 Top 位置（峰值前的某个点）
-        top_idx = max(0, impact_idx - int((impact_idx - address_end) * 0.3))
+        # 极端情况: 搜索区间太小
+        top_idx = max(address_end + 1, impact_idx - 10)
 
     # ============================================================
     # 4. 构建其他阶段
@@ -791,8 +795,8 @@ def plot_swing_analysis(
         output_path: 输出文件路径
         show_plot: 是否显示图表
     """
-    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
-    fig.suptitle("Movement Chain - IMU Swing Analysis (MVP)", fontsize=14, fontweight="bold")
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    fig.suptitle("Movement Chain - IMU Swing Analysis", fontsize=14, fontweight="bold")
 
     time_ms = df["time_ms"].values
 
@@ -875,39 +879,8 @@ def plot_swing_analysis(
     by_label = dict(zip(labels, handles))
     ax2.legend(by_label.values(), by_label.keys(), loc="upper left", fontsize=8)
 
-    # ============================================================
-    # 图3: 指标汇总
-    # ============================================================
-    ax3 = axes[2]
-    ax3.axis("off")
-
-    # 创建指标表格
-    metrics_text = f"""
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║                              挥杆分析报告 - MVP 验证                               ║
-╠══════════════════════════════════════════════════════════════════════════════════╣
-║                                                                                  ║
-║  📊 核心指标                                                                      ║
-║  ──────────────────────────────────────────────────────────────────────────────  ║
-║  Peak Angular Velocity:  {metrics.peak_angular_velocity_dps:>7.0f}°/s    → {metrics.velocity_level:<8} (基准: 600-1500°/s)       ║
-║  Backswing Duration:     {metrics.backswing_duration_ms:>7.0f} ms    → {'业余' if metrics.backswing_duration_ms > 850 else '进阶':<8} (基准: 700-850ms)        ║
-║  Downswing Duration:     {metrics.downswing_duration_ms:>7.0f} ms    → {'进阶' if 230 <= metrics.downswing_duration_ms <= 300 else '待改进':<8} (基准: 230-300ms)        ║
-║  Total Swing Time:       {metrics.total_swing_time_ms:>7.0f} ms    → (基准: 950-1100ms)                                ║
-║  Tempo Ratio:            {metrics.tempo_ratio:>7.2f}       → {metrics.tempo_level:<8} (理想: 3:1)                    ║
-║                                                                                  ║
-║  🎯 综合评估: {metrics.overall_level}                                                             ║
-║                                                                                  ║
-╚══════════════════════════════════════════════════════════════════════════════════╝
-"""
-    ax3.text(
-        0.05,
-        0.5,
-        metrics_text,
-        transform=ax3.transAxes,
-        fontsize=10,
-        fontfamily="monospace",
-        verticalalignment="center",
-    )
+    # 添加 X 轴标签
+    ax2.set_xlabel("Time (ms)")
 
     plt.tight_layout()
 
@@ -1113,7 +1086,7 @@ def analyze_swing(
     print(
         f"总挥杆时间:   {metrics.total_swing_time_ms:>7.0f}ms   ({_evaluate_duration(metrics.total_swing_time_ms, 950, 1100)})"
     )
-    print(f"节奏比:       {metrics.tempo_ratio:>7.2f}     ({metrics.tempo_level})")
+    print(f"节奏比:       {metrics.tempo_ratio if metrics.tempo_ratio is not None else 'N/A':>7}     ({metrics.tempo_level})")
     print(
         f"手腕释放点:   {_format_optional(metrics.wrist_release_point_pct, '%')}  ({metrics.wrist_release_level})"
     )
@@ -1157,7 +1130,7 @@ if __name__ == "__main__":
         epilog="""
 示例:
   python imu_swing_analyzer.py data.csv
-  python imu_swing_analyzer.py data.csv --gyro-range 2000 --output-dir ./output
+  python imu_swing_analyzer.py data.csv --gyro-range 500 --output-dir ./output
   python imu_swing_analyzer.py data.csv --no-isolate  # 不自动隔离
         """,
     )
@@ -1165,9 +1138,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gyro-range",
         type=int,
-        default=2000,
+        default=500,
         choices=[250, 500, 1000, 2000],
-        help="陀螺仪量程设置 (默认: 2000)",
+        help="陀螺仪量程设置 (默认: 500)",
     )
     parser.add_argument("--output-dir", type=str, default=None, help="输出目录")
     parser.add_argument("--no-plot", action="store_true", help="不显示图表")

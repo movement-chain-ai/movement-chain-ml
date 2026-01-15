@@ -1,7 +1,5 @@
-# Core ML libraries (add your specific dependencies here)
-# Example:
-# numpy==1.26.0
-# pandas==2.1.0
-# scikit-learn==1.3.0
-# torch==2.1.0
-# transformers==4.35.0
+# Core dependencies for IMU Swing Analyzer
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+scipy>=1.10.0
