@@ -105,3 +105,6 @@ tmp/
 temp/
 *.tmp
 output/
+
+# Test data
+data/

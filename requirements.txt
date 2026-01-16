@@ -1,5 +1,12 @@
-# Core dependencies for IMU Swing Analyzer
+# Core dependencies for Movement Chain ML
 numpy>=1.24.0
 pandas>=2.0.0
 matplotlib>=3.7.0
 scipy>=1.10.0
+
+# Vision / Pose Estimation
+mediapipe>=0.10.0
+opencv-python>=4.8.0
+
+# Visualization (Phase 4)
+rerun-sdk>=0.20.0
