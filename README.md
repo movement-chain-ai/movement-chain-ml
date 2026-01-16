@@ -1,146 +1,172 @@
 # Movement Chain ML
 
-Machine Learning components for the Movement Chain project.
+Golf swing analysis pipeline combining vision (MediaPipe) and IMU sensor data.
+
+## Features
+
+- **Vision Analysis**: MediaPipe Pose Landmarker for 33-point skeleton tracking
+- **IMU Processing**: 8-phase swing detection with 7 performance metrics
+- **Sensor Fusion**: Time-aligned Vision + IMU data using Impact as anchor
+- **3D Visualization**: Rerun SDK for interactive swing playback
+- **AI Coaching**: Structured Kinematic Prompts for LLM feedback generation
 
 ## Quick Start
 
 ### Installation
 
-1. **Install Node.js dependencies** (for Git hooks):
-   ```bash
-   npm install
-   ```
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-2. **Set up Python environment**:
-   ```bash
-   # Create virtual environment
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Install package with all dependencies
+pip install -e ".[all]"
 
-   # Install development dependencies
-   pip install -r requirements-dev.txt
+# Or install minimal + specific extras
+pip install -e .              # Core only
+pip install -e ".[viz]"       # + Rerun visualization
+pip install -e ".[dev]"       # + Development tools
 
-   # Install production dependencies (when available)
-   # pip install -r requirements.txt
-   ```
+# Set up pre-commit hooks
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
 
-3. **Verify setup**:
-   ```bash
-   # Test Python tools
-   black --version
-   ruff --version
-   pytest --version
+### Usage
 
-   # Test Node tools
-   npx husky --version
-   npx commitlint --version
-   ```
+#### CLI
+
+```bash
+# Run the analysis pipeline
+movement-chain --video data/swing.mp4 --imu data/imu_data.csv
+
+# With Rerun visualization
+movement-chain --video data/swing.mp4 --imu data/imu_data.csv --spawn-viewer
+
+# Specify output directory
+movement-chain --video swing.mp4 --imu swing.csv --output output/session1
+```
+
+#### Python API
+
+```python
+from movement_chain import run_pipeline, VisionAnalyzer, AICoach
+
+# Full pipeline
+result = run_pipeline("video.mp4", "imu.csv")
+print(result.ai_prompt)
+
+# Individual components
+analyzer = VisionAnalyzer()
+vision_result = analyzer.analyze_video("video.mp4")
+```
 
 ## Project Structure
 
 ```
 movement-chain-ml/
-├── src/                  # Source code
-├── tests/                # Unit tests
-├── notebooks/            # Jupyter notebooks
-├── .github/
-│   └── workflows/        # GitHub Actions workflows
-├── .husky/               # Git hooks
-├── pyproject.toml        # Python tool configuration
-├── requirements-dev.txt  # Development dependencies
-└── HOOKS_SETUP.md       # Detailed Git hooks documentation
+├── src/
+│   └── movement_chain/       # Main package
+│       ├── __init__.py       # Package exports
+│       ├── schemas.py        # Data structures & constants
+│       ├── vision_analyzer.py    # MediaPipe pose analysis
+│       ├── imu_swing_analyzer.py # IMU phase detection
+│       ├── sensor_fusion.py      # Vision + IMU alignment
+│       ├── rerun_visualizer.py   # 3D visualization
+│       ├── ai_coach.py           # Kinematic prompt generation
+│       └── pipeline.py           # CLI & orchestration
+├── scripts/
+│   └── test_mediapipe.py     # Standalone MediaPipe testing tool
+├── tests/                    # Unit tests
+├── docs/                     # Documentation
+│   ├── FUSION_PIPELINE_PLAN.md
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   ├── QUICK_REFERENCE.md
+│   └── SETUP_INSTRUCTIONS.md
+├── data/                     # Sample data
+├── models/                   # ML model files
+├── notebooks/                # Jupyter notebooks
+├── output/                   # Analysis outputs
+├── .github/workflows/        # CI/CD
+├── pyproject.toml           # Project config
+├── .pre-commit-config.yaml  # Git hooks
+└── requirements.txt         # Dependencies
 ```
 
-## Development Workflow
+## Development
 
-### Making Changes
+### Setup
 
 ```bash
-# 1. Create feature branch
-git checkout -b feat/your-feature
+# Install dev dependencies
+pip install -e ".[dev]"
 
-# 2. Make changes
-# ... edit files ...
+# Install pre-commit hooks
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
 
-# 3. Format and lint (automatic on commit)
+### Code Quality
+
+```bash
+# Format code
 black src/ tests/
-ruff check --fix src/ tests/
 isort src/ tests/
 
-# 4. Run tests
-pytest
+# Lint
+ruff check --fix src/ tests/
 
-# 5. Commit with conventional format
-git commit -m "feat: add new feature"
+# Type check
+mypy src/
 
-# 6. Push (tests run automatically)
-git push origin feat/your-feature
+# Run all checks
+pre-commit run --all-files
 ```
 
-### Commit Message Format
-
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <subject>
-```
-
-**Types:** feat, fix, docs, chore, refactor, test, perf, ci, style
-
-**Examples:**
-```bash
-git commit -m "feat: add model training pipeline"
-git commit -m "fix: resolve data preprocessing issue"
-git commit -m "docs: update README with examples"
-git commit -m "test: add unit tests for feature extraction"
-```
-
-## Git Hooks
-
-- **commit-msg**: Validates commit message format
-- **pre-commit**: Runs linters and formatters, strips notebook outputs
-- **pre-push**: Runs type checking and tests
-
-See [HOOKS_SETUP.md](HOOKS_SETUP.md) for detailed documentation.
-
-## Testing
+### Testing
 
 ```bash
 # Run all tests
 pytest
 
-# Run with coverage
-pytest --cov=src --cov-report=html
+# With coverage
+pytest --cov=src/movement_chain --cov-report=html
 
-# Run specific test
-pytest tests/test_model.py -v
+# Specific test
+pytest tests/test_example.py -v
 ```
 
-## Code Quality Tools
+### Commit Messages
 
-- **Black**: Code formatting (line length: 100)
-- **Ruff**: Fast Python linter
-- **isort**: Import sorting
-- **mypy**: Type checking
-- **pytest**: Testing framework
+Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-## CI/CD
+```bash
+git commit -m "feat(analysis): add new swing metric"
+git commit -m "fix(vision): resolve keypoint detection issue"
+git commit -m "docs: update API documentation"
+```
 
-Pull requests automatically run:
-- Python linting (Ruff, Black, isort)
-- Type checking (mypy)
-- Unit tests with coverage
-- Notebook validation
-- Commit message validation
+**Types:** `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `style`
+
+## Pipeline Architecture
+
+```
+Video (30fps) ─┬─→ VisionAnalyzer ──┐
+               │   (MediaPipe)       │
+               │                     ├─→ SensorFusion ──┬─→ RerunVisualizer
+               │                     │   (Impact sync)   │   (3D playback)
+IMU (1000Hz) ──┴─→ IMUAnalyzer ─────┘                   │
+                   (8 phases)                           └─→ AICoach
+                                                            (Kinematic Prompt)
+```
 
 ## Documentation
 
-- [HOOKS_SETUP.md](HOOKS_SETUP.md) - Complete Git hooks and development workflow guide
+- [Fusion Pipeline Plan](docs/FUSION_PIPELINE_PLAN.md) - Architecture & design
+- [Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md) - Module details
+- [Quick Reference](docs/QUICK_REFERENCE.md) - Developer reference
+- [Setup Instructions](docs/SETUP_INSTRUCTIONS.md) - Detailed setup guide
 
 ## License
 
-[Add license information]
-
-## Contributing
-
-[Add contribution guidelines]
+MIT

@@ -24,10 +24,10 @@ share/python-wheels/
 MANIFEST
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/
-.venv
 
 # Testing
 .pytest_cache/
@@ -38,7 +38,6 @@ htmlcov/
 .nox/
 coverage.xml
 *.cover
-*.log
 
 # Type checking
 .mypy_cache/
@@ -47,10 +46,12 @@ dmypy.json
 .pyre/
 .pytype/
 
+# Linting
+.ruff_cache/
+
 # Jupyter Notebooks
-.ipynb_checkpoints
+.ipynb_checkpoints/
 */.ipynb_checkpoints/*
-*.ipynb_checkpoints
 
 # IDEs
 .vscode/
@@ -58,53 +59,31 @@ dmypy.json
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
-
-# Node.js (for husky/commitlint)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
-
-# ML/Data Science specific
-*.h5
-*.hdf5
-*.pkl
-*.pickle
-*.joblib
-*.model
-*.ckpt
-*.pth
-*.pt
-models/
-data/
-datasets/
-*.csv
-*.parquet
-*.feather
-
-# Logs and databases
-*.log
-*.sql
-*.sqlite
-*.db
+Thumbs.db
 
 # Environment variables
 .env
 .env.local
 .env.*.local
 
-# OS
-.DS_Store
-Thumbs.db
+# Logs
+*.log
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+
+# Output directory (generated analysis results)
 output/
 
-# Test data
-data/
+# Large model files (keep pose_landmarker_full.task tracked)
+*.onnx
+*.h5
+*.hdf5
+
+# Rerun recordings (generated)
+*.rrd

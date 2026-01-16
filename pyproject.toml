@@ -1,3 +1,56 @@
+[project]
+name = "movement-chain"
+version = "2.0.0"
+description = "Golf swing analysis pipeline combining vision (MediaPipe) and IMU sensor data"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Movement Chain AI Team" }]
+keywords = ["golf", "swing-analysis", "mediapipe", "imu", "machine-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "mediapipe>=0.10.0",
+    "opencv-python>=4.8.0",
+]
+
+[project.optional-dependencies]
+viz = ["rerun-sdk>=0.20.0"]
+dev = [
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+    "isort>=5.12.0",
+    "mypy>=1.5.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pre-commit>=3.5.0",
+]
+all = ["movement-chain[viz,dev]"]
+
+[project.scripts]
+movement-chain = "movement_chain.pipeline:main"
+
+[project.urls]
+Repository = "https://github.com/movement-chain/movement-chain-ml"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.black]
 line-length = 100
 target-version = ['py311']
@@ -41,7 +94,7 @@ ignore = [
 profile = "black"
 line_length = 100
 skip_gitignore = true
-known_first_party = ["src"]
+known_first_party = ["movement_chain"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -60,6 +113,10 @@ strict_equality = true
 module = "tests.*"
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*", "rerun.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
@@ -68,14 +125,14 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=src",
+    "--cov=src/movement_chain",
     "--cov-report=term-missing:skip-covered",
     "--cov-report=html",
     "--cov-report=xml",
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src/movement_chain"]
 omit = [
     "*/tests/*",
     "*/__init__.py",
