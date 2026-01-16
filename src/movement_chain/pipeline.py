@@ -22,14 +22,15 @@ Date: 2025-01-15
 """
 
 import argparse
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from .ai_coach import AICoach
+from .ai_coach import AICoach, AICoachV2
 from .imu_swing_analyzer import analyze_swing
 from .rerun_visualizer import RERUN_AVAILABLE, RerunVisualizer
-from .schemas import KinematicPrompt
+from .schemas import KinematicPrompt, KinematicPromptV2
 from .sensor_fusion import SensorFusion
 from .vision_analyzer import VisionAnalyzer
 
@@ -41,7 +42,8 @@ def run_pipeline(
     spawn_viewer: bool = False,
     gyro_range: int = 2000,
     downsample_factor: int = 10,
-) -> KinematicPrompt:
+    use_v2: bool = True,
+) -> KinematicPrompt | KinematicPromptV2:
     """
     运行完整的融合 Pipeline
 
@@ -52,9 +54,10 @@ def run_pipeline(
         spawn_viewer: 是否启动 Rerun Viewer
         gyro_range: IMU 陀螺仪量程 (250, 500, 1000, 2000)
         downsample_factor: Rerun 降采样因子
+        use_v2: 是否使用 V2 输出格式 (默认 True)
 
     Returns:
-        KinematicPrompt 结构化 AI 输入
+        KinematicPromptV2 (use_v2=True) 或 KinematicPrompt (use_v2=False)
     """
     print("=" * 70)
     print("  Movement Chain - Fusion Pipeline")
@@ -153,14 +156,24 @@ def run_pipeline(
     print("[Step 5/5] 生成 AI Kinematic Prompt")
     print("-" * 70)
 
-    coach = AICoach()
-    kinematic_prompt = coach.generate_kinematic_prompt(
-        fused_data=fused_data,
-        visualization_file=rerun_file,
-    )
+    if use_v2:
+        # V2: 纯数据 + 布尔规则触发
+        coach = AICoachV2()
+        kinematic_prompt = coach.generate_kinematic_prompt(
+            fused_data=fused_data,
+            visualization_file=rerun_file,
+        )
+        prompt_file = output_path / f"{session_id}_kinematic_prompt_v2.json"
+    else:
+        # V1: 传统格式 (带文本建议)
+        coach = AICoach()
+        kinematic_prompt = coach.generate_kinematic_prompt(
+            fused_data=fused_data,
+            visualization_file=rerun_file,
+        )
+        prompt_file = output_path / f"{session_id}_kinematic_prompt.json"
 
     # 保存 Kinematic Prompt
-    prompt_file = output_path / f"{session_id}_kinematic_prompt.json"
     kinematic_prompt.save(str(prompt_file))
 
     print(f"  ✅ Kinematic Prompt: {prompt_file}")
@@ -175,6 +188,7 @@ def run_pipeline(
     print()
     print(f"  输出目录: {output_path}")
     print(f"  Session ID: {session_id}")
+    print(f"  输出格式: {'V2 (纯数据)' if use_v2 else 'V1 (含文本建议)'}")
     print()
     print("  生成文件:")
     print(f"    - {prompt_file.name} (AI 输入)")
@@ -183,10 +197,34 @@ def run_pipeline(
     print()
     print("  整体评估:")
     print(f"    - 水平: {kinematic_prompt.overall_level}")
-    if kinematic_prompt.key_issues:
-        print("    - 主要问题:")
-        for issue in kinematic_prompt.key_issues[:3]:
-            print(f"      • {issue}")
+
+    if use_v2:
+        # V2 输出规则触发统计
+        triggers = kinematic_prompt.rule_triggers
+        print(f"    - 规则评估: {triggers.rules_triggered}/{triggers.rules_evaluated} 触发")
+        if triggers.rules_triggered > 0:
+            print("    - 触发的规则:")
+            if triggers.tempo_ratio_outside_ideal:
+                print("      • tempo_ratio_outside_ideal")
+            if triggers.head_movement_excessive:
+                print("      • head_movement_excessive")
+            if triggers.x_factor_insufficient:
+                print("      • x_factor_insufficient")
+            if triggers.backswing_too_fast:
+                print("      • backswing_too_fast")
+            if triggers.downswing_too_slow:
+                print("      • downswing_too_slow")
+            if triggers.lead_arm_bent:
+                print("      • lead_arm_bent")
+            if triggers.velocity_below_amateur:
+                print("      • velocity_below_amateur")
+    else:
+        # V1 输出关键问题
+        if kinematic_prompt.key_issues:
+            print("    - 主要问题:")
+            for issue in kinematic_prompt.key_issues[:3]:
+                print(f"      • {issue}")
+
     print()
     print("  下一步:")
     if rerun_file:
@@ -252,6 +290,12 @@ def main():
         help="Rerun 降采样因子 (默认: 10)",
     )
 
+    parser.add_argument(
+        "--v1",
+        action="store_true",
+        help="使用 V1 输出格式 (含文本建议，默认使用 V2 纯数据格式)",
+    )
+
     args = parser.parse_args()
 
     # 检查文件存在
@@ -271,6 +315,7 @@ def main():
             spawn_viewer=args.spawn_viewer,
             gyro_range=args.gyro_range,
             downsample_factor=args.downsample,
+            use_v2=not args.v1,
         )
     except Exception as e:
         print(f"\n[ERROR] Pipeline 失败: {e}")

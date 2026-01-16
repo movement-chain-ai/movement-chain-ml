@@ -146,6 +146,9 @@ class FusedSwingData:
     imu_metrics: dict[str, Any]  # SwingMetrics 转换为 dict
     imu_report: dict[str, Any]  # 完整报告
 
+    # V2: 逐阶段指标 (由 SensorFusion.aggregate_phase_metrics 填充)
+    phase_metrics: list[Any] | None = None  # list[PerPhaseMetrics], 使用 Any 避免循环引用
+
     def to_dict(self) -> dict[str, Any]:
         """转换为字典 (用于 JSON 序列化)"""
         return {
@@ -245,6 +248,293 @@ class KinematicPrompt:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
         print(f"✅ Kinematic Prompt 已保存: {output_path}")
+
+
+# ============================================================
+# V2 Per-Phase Metrics 数据结构
+# ============================================================
+
+
+@dataclass
+class SensorAvailability:
+    """传感器可用性状态"""
+
+    vision: bool = False
+    imu: bool = False
+    emg: bool = False  # 预留 EMG 扩展
+    vision_frame_count: int = 0
+    imu_frame_count: int = 0
+    emg_frame_count: int = 0
+
+
+@dataclass
+class PhaseTimingMetrics:
+    """阶段时间指标"""
+
+    start_ms: float
+    end_ms: float
+    duration_ms: float
+    frame_count: int
+
+
+@dataclass
+class PhaseIMUMetrics:
+    """阶段 IMU 指标 (陀螺仪统计)"""
+
+    gyro_magnitude_max: float | None = None
+    gyro_magnitude_avg: float | None = None
+    gyro_magnitude_min: float | None = None
+    gyro_stability_score: float | None = None  # 标准差的倒数归一化
+    gyro_x_max: float | None = None
+    gyro_y_max: float | None = None
+    gyro_z_max: float | None = None
+
+
+@dataclass
+class PhaseVisionMetrics:
+    """阶段视觉指标"""
+
+    x_factor_start: float | None = None
+    x_factor_end: float | None = None
+    x_factor_max: float | None = None
+    x_factor_min: float | None = None
+    x_factor_delta: float | None = None
+    left_arm_angle_avg: float | None = None
+    right_arm_angle_avg: float | None = None
+    head_displacement_cm: float | None = None
+
+
+@dataclass
+class PhaseEMGMetrics:
+    """阶段 EMG 指标 (预留扩展)"""
+
+    core_activation_pct: float | None = None
+    forearm_activation_pct: float | None = None
+    timing_gap_ms: float | None = None
+
+
+# ============================================================
+# 阶段特定指标 (8 个阶段)
+# ============================================================
+
+
+@dataclass
+class AddressPhaseMetrics:
+    """Address 阶段特定指标 (准备)"""
+
+    stability_score: float | None = None  # 静止稳定性 0-100
+    spine_angle_deg: float | None = None  # 脊柱前倾角
+    stance_width_ratio: float | None = None  # 站位宽度/肩宽
+
+
+@dataclass
+class TakeawayPhaseMetrics:
+    """Takeaway 阶段特定指标 (启动)"""
+
+    initial_acceleration_dps2: float | None = None  # 初始加速度
+    rotation_start_ms: float | None = None  # 旋转开始时间
+
+
+@dataclass
+class BackswingPhaseMetrics:
+    """Backswing 阶段特定指标 (上杆)"""
+
+    x_factor_buildup_rate: float | None = None  # X-Factor 增长速率 (°/s)
+    shoulder_turn_deg: float | None = None  # 肩部旋转角度
+    hip_turn_deg: float | None = None  # 髋部旋转角度
+    sway_cm: float | None = None  # 横向晃动距离
+
+
+@dataclass
+class TopPhaseMetrics:
+    """Top 阶段特定指标 (顶点)"""
+
+    x_factor_max_deg: float | None = None  # 最大 X-Factor
+    lead_arm_extension_pct: float | None = None  # 前臂伸展百分比
+    pause_duration_ms: float | None = None  # 顶点停顿时间
+
+
+@dataclass
+class DownswingPhaseMetrics:
+    """Downswing 阶段特定指标 (下杆)"""
+
+    peak_velocity_dps: float | None = None  # 峰值角速度
+    acceleration_rate_dps2: float | None = None  # 加速率
+    hip_lead_ms: float | None = None  # 髋部领先时间
+    wrist_release_point_pct: float | None = None  # 手腕释放点 (0-100%)
+
+
+@dataclass
+class ImpactPhaseMetrics:
+    """Impact 阶段特定指标 (击球)"""
+
+    velocity_at_impact_dps: float | None = None  # 击球时角速度
+    head_stable: bool | None = None  # 头部是否稳定
+    weight_shift_pct: float | None = None  # 重心转移百分比
+
+
+@dataclass
+class FollowThroughPhaseMetrics:
+    """Follow-through 阶段特定指标 (送杆)"""
+
+    deceleration_rate_dps2: float | None = None  # 减速率
+    rotation_completion_pct: float | None = None  # 旋转完成度
+
+
+@dataclass
+class FinishPhaseMetrics:
+    """Finish 阶段特定指标 (收杆)"""
+
+    final_stability_score: float | None = None  # 最终稳定性
+    balance_score: float | None = None  # 平衡评分
+
+
+@dataclass
+class PerPhaseMetrics:
+    """单阶段完整指标容器"""
+
+    phase_name: str
+    phase_name_cn: str
+    timing: PhaseTimingMetrics
+
+    # 通用传感器指标 (可选)
+    imu: PhaseIMUMetrics | None = None
+    vision: PhaseVisionMetrics | None = None
+    emg: PhaseEMGMetrics | None = None
+
+    # 阶段特定指标 (仅一个非空)
+    address: AddressPhaseMetrics | None = None
+    takeaway: TakeawayPhaseMetrics | None = None
+    backswing: BackswingPhaseMetrics | None = None
+    top: TopPhaseMetrics | None = None
+    downswing: DownswingPhaseMetrics | None = None
+    impact: ImpactPhaseMetrics | None = None
+    follow_through: FollowThroughPhaseMetrics | None = None
+    finish: FinishPhaseMetrics | None = None
+
+
+# ============================================================
+# V2 规则触发器 (纯布尔值)
+# ============================================================
+
+
+@dataclass
+class DiagnosticRuleTriggers:
+    """诊断规则触发器 (仅布尔值，无硬编码文本)"""
+
+    # P0 - 关键问题
+    tempo_ratio_outside_ideal: bool = False
+    head_movement_excessive: bool = False
+    x_factor_insufficient: bool = False
+
+    # P1 - 警告
+    backswing_too_fast: bool = False
+    downswing_too_slow: bool = False
+    lead_arm_bent: bool = False
+    early_wrist_release: bool = False
+
+    # P2 - 信息
+    velocity_below_amateur: bool = False
+
+    # 统计
+    rules_evaluated: int = 0
+    rules_triggered: int = 0
+
+
+@dataclass
+class KinematicPromptV2:
+    """V2 AI 输入结构 (纯数据 + 布尔规则触发)"""
+
+    session_id: str
+    analysis_time: str
+    schema_version: str = "2.0"
+
+    # 传感器状态
+    sensors: SensorAvailability = None  # type: ignore
+
+    # 摘要
+    overall_level: str = ""
+
+    # 全局指标
+    imu_global_metrics: dict[str, Any] = None  # type: ignore
+    vision_global_metrics: dict[str, Any] = None  # type: ignore
+
+    # 逐阶段指标
+    phases: list[PerPhaseMetrics] = None  # type: ignore
+
+    # 规则触发器
+    rule_triggers: DiagnosticRuleTriggers = None  # type: ignore
+
+    # 可视化文件
+    visualization_file: str | None = None
+
+    def __post_init__(self):
+        """初始化默认值"""
+        if self.sensors is None:
+            self.sensors = SensorAvailability()
+        if self.imu_global_metrics is None:
+            self.imu_global_metrics = {}
+        if self.vision_global_metrics is None:
+            self.vision_global_metrics = {}
+        if self.phases is None:
+            self.phases = []
+        if self.rule_triggers is None:
+            self.rule_triggers = DiagnosticRuleTriggers()
+
+    def to_dict(self) -> dict[str, Any]:
+        """转换为字典 (符合 V2 JSON 结构)"""
+        return {
+            "schema_version": self.schema_version,
+            "session_id": self.session_id,
+            "analysis_time": self.analysis_time,
+            "sensors": asdict(self.sensors),
+            "summary": {
+                "overall_level": self.overall_level,
+                "rules_triggered_count": self.rule_triggers.rules_triggered,
+            },
+            "metrics": {
+                "global": {
+                    "imu": self.imu_global_metrics,
+                    "vision": self.vision_global_metrics,
+                },
+                "per_phase": [
+                    self._phase_to_dict(p) for p in self.phases
+                ],
+            },
+            "rule_triggers": asdict(self.rule_triggers),
+            "visualization_file": self.visualization_file,
+        }
+
+    def _phase_to_dict(self, phase: PerPhaseMetrics) -> dict[str, Any]:
+        """将单阶段指标转换为字典"""
+        result = {
+            "phase_name": phase.phase_name,
+            "phase_name_cn": phase.phase_name_cn,
+            "timing": asdict(phase.timing),
+            "imu": asdict(phase.imu) if phase.imu else None,
+            "vision": asdict(phase.vision) if phase.vision else None,
+            "emg": asdict(phase.emg) if phase.emg else None,
+        }
+
+        # 添加阶段特定指标
+        phase_specific = None
+        for attr in ["address", "takeaway", "backswing", "top",
+                     "downswing", "impact", "follow_through", "finish"]:
+            specific = getattr(phase, attr, None)
+            if specific is not None:
+                phase_specific = asdict(specific)
+                break
+
+        result["phase_specific"] = phase_specific
+        return result
+
+    def save(self, output_path: str) -> None:
+        """保存为 JSON 文件"""
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        print(f"✅ Kinematic Prompt V2 已保存: {output_path}")
 
 
 # ============================================================

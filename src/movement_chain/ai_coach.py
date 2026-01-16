@@ -19,13 +19,18 @@ Date: 2025-01-15
 """
 
 from dataclasses import asdict
+from typing import Any
 
 from .schemas import (
     BENCHMARKS,
+    DiagnosticRuleTriggers,
     FusedSwingData,
     Issue,
     KinematicPrompt,
+    KinematicPromptV2,
+    PerPhaseMetrics,
     PhaseAnalysis,
+    SensorAvailability,
 )
 
 
@@ -433,6 +438,219 @@ class AICoach:
 """
 
         return prompt
+
+
+# ============================================================
+# V2 AI Coach - 纯数据 + 布尔规则触发
+# ============================================================
+
+
+class AICoachV2:
+    """V2 AI 教练 - 生成纯数据输出，无硬编码文本建议"""
+
+    def __init__(self):
+        """初始化 V2 AI 教练"""
+        self.benchmarks = BENCHMARKS
+
+    def generate_kinematic_prompt(
+        self,
+        fused_data: FusedSwingData,
+        phase_metrics: list[PerPhaseMetrics] | None = None,
+        visualization_file: str | None = None,
+    ) -> KinematicPromptV2:
+        """
+        生成 V2 Kinematic Prompt (纯数据 + 布尔规则)
+
+        Args:
+            fused_data: 融合后的挥杆数据
+            phase_metrics: 逐阶段指标 (可选，优先使用 fused_data.phase_metrics)
+            visualization_file: 可视化文件路径 (可选)
+
+        Returns:
+            KinematicPromptV2 纯数据结构
+        """
+        print("[AICoachV2] 生成 Kinematic Prompt V2...")
+
+        # 使用 fused_data 中的 phase_metrics，或传入的参数
+        phases = phase_metrics or fused_data.phase_metrics or []
+
+        # 1. 检测传感器可用性
+        sensors = self._detect_sensor_availability(fused_data)
+
+        # 2. 评估规则 (返回布尔触发器)
+        rule_triggers = self._evaluate_rules(fused_data)
+
+        # 3. 确定整体水平
+        overall_level = self._determine_level(fused_data)
+
+        # 4. 构建 KinematicPromptV2
+        prompt = KinematicPromptV2(
+            session_id=fused_data.session_id,
+            analysis_time=fused_data.analysis_time,
+            schema_version="2.0",
+            sensors=sensors,
+            overall_level=overall_level,
+            imu_global_metrics=fused_data.imu_metrics,
+            vision_global_metrics=asdict(fused_data.vision_metrics),
+            phases=phases,
+            rule_triggers=rule_triggers,
+            visualization_file=visualization_file,
+        )
+
+        print(f"[AICoachV2] 传感器: Vision={sensors.vision}, IMU={sensors.imu}")
+        print(f"[AICoachV2] 规则触发: {rule_triggers.rules_triggered}/{rule_triggers.rules_evaluated}")
+        print(f"[AICoachV2] 整体水平: {overall_level}")
+
+        return prompt
+
+    def _detect_sensor_availability(
+        self,
+        fused_data: FusedSwingData,
+    ) -> SensorAvailability:
+        """检测各传感器数据可用性"""
+        # 统计有 Vision 数据的帧
+        vision_frames = sum(1 for f in fused_data.frames if f.has_vision)
+
+        # 统计有 IMU 数据的帧
+        imu_frames = sum(1 for f in fused_data.frames if f.gyro_magnitude is not None)
+
+        return SensorAvailability(
+            vision=vision_frames > 0,
+            imu=imu_frames > 0,
+            emg=False,  # EMG 预留
+            vision_frame_count=vision_frames,
+            imu_frame_count=imu_frames,
+            emg_frame_count=0,
+        )
+
+    def _evaluate_rules(
+        self,
+        fused_data: FusedSwingData,
+    ) -> DiagnosticRuleTriggers:
+        """
+        评估诊断规则，返回布尔触发器
+
+        所有规则仅返回 True/False，不生成文本建议
+        """
+        triggers = DiagnosticRuleTriggers()
+        rules_evaluated = 0
+        rules_triggered = 0
+
+        imu = fused_data.imu_metrics
+        vision = asdict(fused_data.vision_metrics)
+
+        # ========================================
+        # P0 - 关键问题
+        # ========================================
+
+        # 节奏比检查 (理想范围 2.5-3.5)
+        tempo_ratio = imu.get("tempo_ratio")
+        if tempo_ratio is not None:
+            rules_evaluated += 1
+            if tempo_ratio < 2.0 or tempo_ratio > 4.0:
+                triggers.tempo_ratio_outside_ideal = True
+                rules_triggered += 1
+
+        # 头部移动检查 (超过 10cm 为过量)
+        head_movement = vision.get("head_movement_cm")
+        if head_movement is not None:
+            rules_evaluated += 1
+            if head_movement > 10.0:
+                triggers.head_movement_excessive = True
+                rules_triggered += 1
+
+        # X-Factor 检查 (低于 35 度为不足)
+        x_factor = vision.get("x_factor_max_deg")
+        if x_factor is not None:
+            rules_evaluated += 1
+            if x_factor < 35.0:
+                triggers.x_factor_insufficient = True
+                rules_triggered += 1
+
+        # ========================================
+        # P1 - 警告
+        # ========================================
+
+        # 上杆过快检查 (低于 700ms)
+        backswing_duration = imu.get("backswing_duration_ms")
+        if backswing_duration is not None:
+            rules_evaluated += 1
+            if backswing_duration < 700:
+                triggers.backswing_too_fast = True
+                rules_triggered += 1
+
+        # 下杆过慢检查 (超过 350ms)
+        downswing_duration = imu.get("downswing_duration_ms")
+        if downswing_duration is not None:
+            rules_evaluated += 1
+            if downswing_duration > 350:
+                triggers.downswing_too_slow = True
+                rules_triggered += 1
+
+        # 前臂弯曲检查 (低于 70%)
+        lead_arm = vision.get("lead_arm_extension_pct")
+        if lead_arm is not None:
+            rules_evaluated += 1
+            if lead_arm < 70.0:
+                triggers.lead_arm_bent = True
+                rules_triggered += 1
+
+        # 手腕过早释放检查 (释放点低于 50%)
+        wrist_release = imu.get("wrist_release_point")
+        if wrist_release is not None:
+            rules_evaluated += 1
+            if wrist_release < 50.0:
+                triggers.early_wrist_release = True
+                rules_triggered += 1
+
+        # ========================================
+        # P2 - 信息
+        # ========================================
+
+        # 峰值速度低于业余水平 (低于 600 °/s)
+        peak_velocity = imu.get("peak_angular_velocity_dps")
+        if peak_velocity is not None:
+            rules_evaluated += 1
+            if peak_velocity < 600:
+                triggers.velocity_below_amateur = True
+                rules_triggered += 1
+
+        # 更新统计
+        triggers.rules_evaluated = rules_evaluated
+        triggers.rules_triggered = rules_triggered
+
+        return triggers
+
+    def _determine_level(self, fused_data: FusedSwingData) -> str:
+        """确定整体水平 (复用 AICoach 逻辑)"""
+        imu = fused_data.imu_metrics
+
+        # 使用峰值角速度作为主要指标
+        peak_velocity = imu.get("peak_angular_velocity_dps", 0)
+
+        benchmark = self.benchmarks.get("peak_angular_velocity_dps", {})
+
+        for level in ["professional", "advanced", "amateur", "beginner"]:
+            if level in benchmark:
+                low, high = benchmark[level]
+                if low <= peak_velocity <= high:
+                    level_cn = {
+                        "beginner": "初级",
+                        "amateur": "中级",
+                        "advanced": "高级",
+                        "professional": "职业",
+                    }
+                    return level_cn.get(level, level)
+
+        # 默认
+        if peak_velocity > 1500:
+            return "职业"
+        elif peak_velocity > 1000:
+            return "高级"
+        elif peak_velocity > 600:
+            return "中级"
+        else:
+            return "初级"
 
 
 def main():

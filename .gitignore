@@ -87,3 +87,6 @@ output/
 
 # Rerun recordings (generated)
 *.rrd
+
+# Package manager lock files
+uv.lock
