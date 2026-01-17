@@ -128,7 +128,7 @@ class SensorFusion:
         """从 IMU 数据找到 Impact 时刻索引"""
         # 方法 1: 从阶段中查找
         for phase in imu_phases:
-            if phase.get("phase", "").lower() == "impact":
+            if phase.get("name", "").lower() == "impact":
                 return phase.get("start_idx", 0)
 
         # 方法 2: 找陀螺仪峰值
@@ -238,9 +238,8 @@ class SensorFusion:
         for phase in imu_phases:
             start_idx = phase.get("start_idx", 0)
             end_idx = phase.get("end_idx", start_idx)
-            # SwingPhase uses 'name'/'name_cn', not 'phase'/'phase_cn'
-            name = phase.get("name") or phase.get("phase", "unknown")
-            name_cn = phase.get("name_cn") or phase.get("phase_cn", name)
+            name = phase.get("name", "unknown")
+            name_cn = phase.get("name_cn", name)
             for i in range(int(start_idx), int(end_idx) + 1):
                 phase_map[i] = (name, name_cn)
         return phase_map
@@ -341,9 +340,8 @@ class SensorFusion:
         phase_metrics_list = []
 
         for phase_info in imu_phases:
-            # SwingPhase uses 'name'/'name_cn', not 'phase'/'phase_cn'
-            phase_name = phase_info.get("name") or phase_info.get("phase", "unknown")
-            phase_name_cn = phase_info.get("name_cn") or phase_info.get("phase_cn", phase_name)
+            phase_name = phase_info.get("name", "unknown")
+            phase_name_cn = phase_info.get("name_cn", phase_name)
             start_idx = phase_info.get("start_idx", 0)
             end_idx = phase_info.get("end_idx", start_idx)
 

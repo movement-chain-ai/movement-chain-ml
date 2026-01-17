@@ -296,8 +296,8 @@ class AICoach:
         phase_analysis = []
 
         for phase in fused_data.imu_phases:
-            name = phase.get("phase", "unknown")
-            name_cn = phase.get("phase_cn", name)
+            name = phase.get("name", "unknown")
+            name_cn = phase.get("name_cn", name)
             duration = phase.get("duration_ms", 0)
 
             # 根据阶段检查问题

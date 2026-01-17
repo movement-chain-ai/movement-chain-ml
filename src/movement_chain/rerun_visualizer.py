@@ -205,8 +205,8 @@ class RerunVisualizer:
     def _log_phases(self, imu_phases: list[dict[str, Any]]) -> None:
         """记录阶段信息到 Rerun"""
         for phase in imu_phases:
-            phase_name = phase.get("phase", "unknown")
-            phase_cn = phase.get("phase_cn", phase_name)
+            phase_name = phase.get("name", "unknown")
+            phase_cn = phase.get("name_cn", phase_name)
             start_ms = phase.get("start_time_ms", 0)
             end_ms = phase.get("end_time_ms", 0)
             duration = phase.get("duration_ms", 0)

@@ -90,8 +90,80 @@ class IMUFrame:
     gyro_magnitude: float  # 陀螺仪合成值
 
 
-# 注意: SwingPhase 和 SwingMetrics 定义在 imu_swing_analyzer.py 中
-# 这里导入使用，避免重复定义
+@dataclass
+class SwingPhase:
+    """挥杆阶段数据"""
+
+    name: str  # 阶段英文名 (Address, Takeaway, Backswing, Top, Downswing, Impact, Follow-through, Finish)
+    name_cn: str  # 阶段中文名
+    start_idx: int  # 起始索引
+    end_idx: int  # 结束索引
+    start_time_ms: float  # 起始时间 (毫秒)
+    end_time_ms: float  # 结束时间 (毫秒)
+    duration_ms: float  # 持续时间 (毫秒)
+    peak_gyro_dps: float  # 阶段内峰值角速度 (度/秒)
+
+    def __post_init__(self) -> None:
+        """Validate invariants at construction time."""
+        import numpy as np
+
+        if self.end_idx < self.start_idx:
+            raise ValueError(
+                f"SwingPhase '{self.name}': end_idx ({self.end_idx}) < start_idx ({self.start_idx})"
+            )
+        if self.end_time_ms < self.start_time_ms:
+            raise ValueError(
+                f"SwingPhase '{self.name}': end_time_ms ({self.end_time_ms}) < start_time_ms ({self.start_time_ms})"
+            )
+        if self.peak_gyro_dps < 0 or (
+            isinstance(self.peak_gyro_dps, float) and np.isnan(self.peak_gyro_dps)
+        ):
+            raise ValueError(
+                f"SwingPhase '{self.name}': invalid peak_gyro_dps ({self.peak_gyro_dps})"
+            )
+
+
+@dataclass
+class SwingMetrics:
+    """挥杆指标 - 完整 7 项 IMU 指标"""
+
+    # 核心 5 项
+    peak_angular_velocity_dps: float  # 峰值角速度 (度/秒)
+    backswing_duration_ms: float  # 上杆时长 (毫秒)
+    downswing_duration_ms: float  # 下杆时长 (毫秒)
+    total_swing_time_ms: float  # 总挥杆时间 (毫秒)
+    tempo_ratio: float | None  # 节奏比 (上杆/下杆), 下杆为0时为None
+
+    # 新增 2 项
+    wrist_release_point_pct: float | None  # 手腕释放点 (下杆完成百分比)
+    acceleration_time_ms: float | None  # 加速时段 (毫秒)
+
+    # 评估等级
+    velocity_level: str  # 峰值速度等级
+    tempo_level: str  # 节奏等级
+    wrist_release_level: str  # 手腕释放等级
+    acceleration_level: str  # 加速等级
+    overall_level: str  # 综合等级
+
+    def __post_init__(self) -> None:
+        """Validate invariants at construction time."""
+        if self.peak_angular_velocity_dps < 0:
+            raise ValueError(
+                f"peak_angular_velocity_dps must be non-negative, got {self.peak_angular_velocity_dps}"
+            )
+        if self.backswing_duration_ms < 0:
+            raise ValueError(
+                f"backswing_duration_ms must be non-negative, got {self.backswing_duration_ms}"
+            )
+        if self.downswing_duration_ms < 0:
+            raise ValueError(
+                f"downswing_duration_ms must be non-negative, got {self.downswing_duration_ms}"
+            )
+        if self.wrist_release_point_pct is not None:
+            if not (0 <= self.wrist_release_point_pct <= 100):
+                raise ValueError(
+                    f"wrist_release_point_pct must be in [0, 100], got {self.wrist_release_point_pct}"
+                )
 
 
 # ============================================================

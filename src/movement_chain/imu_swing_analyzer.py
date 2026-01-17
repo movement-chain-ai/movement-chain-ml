@@ -7,15 +7,18 @@ Author: Movement Chain AI Team
 Date: 2026-01-14
 """
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
-from dataclasses import dataclass, asdict, field
-from typing import List, Dict, Tuple, Optional, ClassVar
-from pathlib import Path
 import json
+from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
+from typing import ClassVar, Dict, List, Optional, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.signal import find_peaks
+
+from .schemas import SwingMetrics, SwingPhase
 
 # ============================================================
 # 配置参数
@@ -43,80 +46,6 @@ class IMUConfig:
 
     # 消抖参数
     debounce_samples: int = 5  # 需要连续 N 个采样点才确认状态变化
-
-
-@dataclass
-class SwingPhase:
-    """挥杆阶段数据"""
-
-    name: str
-    name_cn: str
-    start_idx: int
-    end_idx: int
-    start_time_ms: float
-    end_time_ms: float
-    duration_ms: float
-    peak_gyro_dps: float
-
-    def __post_init__(self) -> None:
-        """Validate invariants at construction time."""
-        if self.end_idx < self.start_idx:
-            raise ValueError(
-                f"SwingPhase '{self.name}': end_idx ({self.end_idx}) < start_idx ({self.start_idx})"
-            )
-        if self.end_time_ms < self.start_time_ms:
-            raise ValueError(
-                f"SwingPhase '{self.name}': end_time_ms ({self.end_time_ms}) < start_time_ms ({self.start_time_ms})"
-            )
-        if self.peak_gyro_dps < 0 or (
-            isinstance(self.peak_gyro_dps, float) and np.isnan(self.peak_gyro_dps)
-        ):
-            raise ValueError(
-                f"SwingPhase '{self.name}': invalid peak_gyro_dps ({self.peak_gyro_dps})"
-            )
-
-
-@dataclass
-class SwingMetrics:
-    """挥杆指标 - 完整 7 项 IMU 指标"""
-
-    # 核心 5 项 (原有)
-    peak_angular_velocity_dps: float
-    backswing_duration_ms: float
-    downswing_duration_ms: float
-    total_swing_time_ms: float
-    tempo_ratio: Optional[float]  # Can be None if downswing_duration is 0
-
-    # 新增 2 项
-    wrist_release_point_pct: Optional[float]  # 手腕释放点 (下杆完成百分比)
-    acceleration_time_ms: Optional[float]  # 加速时段 (毫秒)
-
-    # 评估等级
-    velocity_level: str
-    tempo_level: str
-    wrist_release_level: str
-    acceleration_level: str
-    overall_level: str
-
-    def __post_init__(self) -> None:
-        """Validate invariants at construction time."""
-        if self.peak_angular_velocity_dps < 0:
-            raise ValueError(
-                f"peak_angular_velocity_dps must be non-negative, got {self.peak_angular_velocity_dps}"
-            )
-        if self.backswing_duration_ms < 0:
-            raise ValueError(
-                f"backswing_duration_ms must be non-negative, got {self.backswing_duration_ms}"
-            )
-        if self.downswing_duration_ms < 0:
-            raise ValueError(
-                f"downswing_duration_ms must be non-negative, got {self.downswing_duration_ms}"
-            )
-        if self.wrist_release_point_pct is not None:
-            if not (0 <= self.wrist_release_point_pct <= 100):
-                raise ValueError(
-                    f"wrist_release_point_pct must be in [0, 100], got {self.wrist_release_point_pct}"
-                )
 
 
 # ============================================================
@@ -927,8 +856,10 @@ def generate_report(
         "version": "MVP-2.0",
         "phases": [
             {
-                "phase": p.name,
-                "phase_cn": p.name_cn,
+                "name": p.name,
+                "name_cn": p.name_cn,
+                "start_idx": p.start_idx,
+                "end_idx": p.end_idx,
                 "start_time_ms": round(p.start_time_ms, 1),
                 "end_time_ms": round(p.end_time_ms, 1),
                 "duration_ms": round(p.duration_ms, 1),
