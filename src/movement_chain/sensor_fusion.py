@@ -202,8 +202,13 @@ class SensorFusion:
             # 获取 IMU 数据
             gyro_dps = self._extract_gyro(row)
             accel_g = self._extract_accel(row)
+            # 优先使用预计算的 gyro_magnitude
             gyro_magnitude = None
-            if gyro_dps:
+            if "gyro_mag_dps" in row:
+                gyro_magnitude = float(row["gyro_mag_dps"])
+            elif "gyro_magnitude" in row:
+                gyro_magnitude = float(row["gyro_magnitude"])
+            elif gyro_dps:
                 gyro_magnitude = np.sqrt(sum(g**2 for g in gyro_dps))
 
             # 获取阶段信息
@@ -283,13 +288,23 @@ class SensorFusion:
 
     def _extract_gyro(self, row) -> tuple[float, float, float] | None:
         """从行数据提取陀螺仪值"""
-        # 尝试不同的列名
-        for x_col in ["GyX_dps", "GyX", "gyro_x"]:
-            if x_col in row:
-                y_col = x_col.replace("X", "Y").replace("x", "y")
-                z_col = x_col.replace("X", "Z").replace("x", "z")
-                if y_col in row and z_col in row:
-                    return (float(row[x_col]), float(row[y_col]), float(row[z_col]))
+        # 尝试不同的列名格式
+        # 格式1: gyro_x_dps (来自 imu_swing_analyzer 处理后)
+        if "gyro_x_dps" in row:
+            return (
+                float(row["gyro_x_dps"]),
+                float(row["gyro_y_dps"]),
+                float(row["gyro_z_dps"]),
+            )
+        # 格式2: GyX_dps
+        if "GyX_dps" in row:
+            return (float(row["GyX_dps"]), float(row["GyY_dps"]), float(row["GyZ_dps"]))
+        # 格式3: GyX (原始值，需要外部转换)
+        if "GyX" in row:
+            return (float(row["GyX"]), float(row["GyY"]), float(row["GyZ"]))
+        # 格式4: gyro_x
+        if "gyro_x" in row:
+            return (float(row["gyro_x"]), float(row["gyro_y"]), float(row["gyro_z"]))
         return None
 
     def _extract_accel(self, row) -> tuple[float, float, float] | None:

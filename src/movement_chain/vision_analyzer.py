@@ -29,8 +29,19 @@ from .schemas import (
     VisionResult,
 )
 
-# 默认模型路径 (relative to project root: project_root/models/)
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent.parent / "models" / "pose_landmarker_full.task"
+# 模型路径配置 (relative to project root: project_root/models/)
+# __file__ = src/movement_chain/vision_analyzer.py
+# .parent.parent.parent = project root
+MODELS_DIR = Path(__file__).parent.parent.parent / "models"
+
+# 可用模型: heavy (最准确), full (平衡), lite (最快)
+MODEL_FILES = {
+    "heavy": "pose_landmarker_heavy.task",
+    "full": "pose_landmarker_full.task",
+    "lite": "pose_landmarker_lite.task",
+}
+
+DEFAULT_MODEL_TYPE = "heavy"  # Heavy 作为默认，准确度最高
 
 
 def calculate_angle(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> float:
@@ -66,22 +77,42 @@ def calculate_vector_angle(v1: np.ndarray, v2: np.ndarray) -> float:
 class VisionAnalyzer:
     """视频姿态分析器"""
 
-    def __init__(self, model_path: Path | None = None):
+    def __init__(
+        self,
+        model_type: str = DEFAULT_MODEL_TYPE,
+        model_path: Path | None = None,
+    ):
         """
         初始化分析器
 
         Args:
-            model_path: MediaPipe 模型文件路径 (.task)
+            model_type: 模型类型 ("heavy", "full", "lite")
+                - heavy: 最高精度，速度较慢 (默认)
+                - full: 平衡精度和速度
+                - lite: 最快速度，精度较低
+            model_path: 自定义模型文件路径 (覆盖 model_type)
         """
-        self.model_path = model_path or DEFAULT_MODEL_PATH
+        self.model_type = model_type
+
+        if model_path:
+            self.model_path = model_path
+        else:
+            if model_type not in MODEL_FILES:
+                raise ValueError(
+                    f"未知模型类型: {model_type}，可选: {list(MODEL_FILES.keys())}"
+                )
+            self.model_path = MODELS_DIR / MODEL_FILES[model_type]
 
         if not self.model_path.exists():
+            # 生成下载命令
+            model_name = MODEL_FILES.get(model_type, "pose_landmarker_heavy.task")
+            base_name = model_name.replace(".task", "")
             raise FileNotFoundError(
                 f"模型文件不存在: {self.model_path}\n"
                 f"请运行以下命令下载模型:\n"
-                f"  curl -L -o models/pose_landmarker_full.task "
+                f'  curl -L -o models/{model_name} '
                 f'"https://storage.googleapis.com/mediapipe-models/pose_landmarker/'
-                f'pose_landmarker_full/float16/latest/pose_landmarker_full.task"'
+                f'{base_name}/float16/latest/{model_name}"'
             )
 
     def analyze_video(

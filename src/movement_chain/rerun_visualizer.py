@@ -20,6 +20,7 @@ Date: 2025-01-15
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 
 try:
@@ -60,6 +61,7 @@ class RerunVisualizer:
         output_path: str | None = None,
         spawn_viewer: bool = False,
         downsample_factor: int = 10,
+        video_path: str | None = None,
     ) -> str | None:
         """
         可视化融合后的挥杆数据
@@ -69,6 +71,7 @@ class RerunVisualizer:
             output_path: 输出 .rrd 文件路径 (None = 不保存)
             spawn_viewer: 是否启动 Rerun Viewer
             downsample_factor: 降采样因子 (IMU 数据量大，需要降采样)
+            video_path: 原始视频路径 (用于显示视频帧)
 
         Returns:
             保存的文件路径 (如果有)
@@ -90,6 +93,12 @@ class RerunVisualizer:
         # 记录阶段信息
         self._log_phases(fused_data.imu_phases)
 
+        # 预加载视频帧 (如果提供)
+        video_frames: dict[int, np.ndarray] = {}
+        if video_path and Path(video_path).exists():
+            video_frames = self._preload_video_frames(video_path, downsample_factor)
+            print(f"[RerunVisualizer] 预加载 {len(video_frames)} 个视频帧")
+
         # 记录帧数据
         frames_logged = 0
         for i, frame in enumerate(fused_data.frames):
@@ -97,11 +106,25 @@ class RerunVisualizer:
             if i % downsample_factor != 0:
                 continue
 
+            # 设置时间 (在记录任何数据之前)
+            rr.set_time("time", duration=frame.timestamp_ms / 1000.0)
+            rr.set_time("frame", sequence=frame.frame_idx)
+
+            # 记录视频帧 (如果有)
+            if video_frames and frame.has_vision:
+                # 计算对应的视频帧索引
+                video_time_ms = frame.timestamp_ms - fused_data.alignment_offset_ms
+                video_frame_idx = int(video_time_ms * fused_data.vision_fps / 1000.0)
+
+                video_frame = self._find_closest_frame(video_frames, video_frame_idx)
+                if video_frame is not None:
+                    rr.log("video", rr.Image(video_frame))
+
             self._log_frame(frame, fused_data.vision_fps)
             frames_logged += 1
 
             # 进度显示
-            if frames_logged % 100 == 0:
+            if frames_logged % 50 == 0:
                 print(f"[RerunVisualizer] 进度: {frames_logged} 帧")
 
         print(f"[RerunVisualizer] 完成! 共记录 {frames_logged} 帧")
@@ -111,6 +134,45 @@ class RerunVisualizer:
             print(f"[RerunVisualizer] 运行 'rerun {output_path}' 打开可视化")
 
         return output_path
+
+    def _preload_video_frames(
+        self, video_path: str, downsample_factor: int
+    ) -> dict[int, np.ndarray]:
+        """预加载视频帧到内存"""
+        frames: dict[int, np.ndarray] = {}
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            print(f"[RerunVisualizer] 警告: 无法打开视频 {video_path}")
+            return frames
+
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # 保留所有帧 (内存允许的情况下)
+            # 对于 252 帧的 1080p 视频约需 1.5GB 内存
+            # 如果内存不足，可以改为每隔几帧保留
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames[frame_idx] = frame_rgb
+            frame_idx += 1
+
+        cap.release()
+        return frames
+
+    def _find_closest_frame(
+        self, frames: dict[int, np.ndarray], target_idx: int
+    ) -> np.ndarray | None:
+        """找到最接近目标索引的预加载帧"""
+        if not frames:
+            return None
+        if target_idx in frames:
+            return frames[target_idx]
+        # 找最近的帧
+        closest = min(frames.keys(), key=lambda x: abs(x - target_idx))
+        return frames[closest]
 
     def _log_metadata(self, fused_data: FusedSwingData) -> None:
         """记录元数据"""
@@ -233,11 +295,12 @@ class RerunVisualizer:
         points_3d = np.array(points_3d)
 
         # 记录关键点
+        color_rgb = [int(c * 255) for c in color]
         rr.log(
             "skeleton/points",
             rr.Points3D(
                 positions=points_3d,
-                colors=[(int(c * 255) for c in color)] * len(points_3d),
+                colors=[color_rgb] * len(points_3d),
                 radii=[0.01] * len(points_3d),
             ),
         )
@@ -253,7 +316,7 @@ class RerunVisualizer:
                 "skeleton/bones",
                 rr.LineStrips3D(
                     strips=lines,
-                    colors=[(int(c * 255) for c in color)] * len(lines),
+                    colors=[color_rgb] * len(lines),
                     radii=[0.005] * len(lines),
                 ),
             )

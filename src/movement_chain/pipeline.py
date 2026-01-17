@@ -43,6 +43,7 @@ def run_pipeline(
     gyro_range: int = 2000,
     downsample_factor: int = 10,
     use_v2: bool = True,
+    model_type: str = "heavy",
 ) -> KinematicPrompt | KinematicPromptV2:
     """
     运行完整的融合 Pipeline
@@ -55,6 +56,7 @@ def run_pipeline(
         gyro_range: IMU 陀螺仪量程 (250, 500, 1000, 2000)
         downsample_factor: Rerun 降采样因子
         use_v2: 是否使用 V2 输出格式 (默认 True)
+        model_type: MediaPipe 模型类型 ("heavy", "full", "lite")
 
     Returns:
         KinematicPromptV2 (use_v2=True) 或 KinematicPrompt (use_v2=False)
@@ -73,9 +75,10 @@ def run_pipeline(
     # Step 1: 视频分析 (MediaPipe)
     # ========================================
     print("[Step 1/5] 视频分析 (MediaPipe)")
+    print(f"  模型: {model_type}")
     print("-" * 70)
 
-    vision_analyzer = VisionAnalyzer()
+    vision_analyzer = VisionAnalyzer(model_type=model_type)
     vision_result = vision_analyzer.analyze_video(video_path)
 
     print(f"  ✅ 检测到 {len(vision_result.frames)} 帧")
@@ -139,6 +142,7 @@ def run_pipeline(
             output_path=rerun_file,
             spawn_viewer=spawn_viewer,
             downsample_factor=downsample_factor,
+            video_path=video_path,
         )
 
         print(f"  ✅ Rerun 文件: {rerun_file}")
@@ -296,6 +300,14 @@ def main():
         help="使用 V1 输出格式 (含文本建议，默认使用 V2 纯数据格式)",
     )
 
+    parser.add_argument(
+        "--model",
+        "-m",
+        default="heavy",
+        choices=["heavy", "full", "lite"],
+        help="MediaPipe 模型: heavy (最准确, 默认), full (平衡), lite (最快)",
+    )
+
     args = parser.parse_args()
 
     # 检查文件存在
@@ -316,6 +328,7 @@ def main():
             gyro_range=args.gyro_range,
             downsample_factor=args.downsample,
             use_v2=not args.v1,
+            model_type=args.model,
         )
     except Exception as e:
         print(f"\n[ERROR] Pipeline 失败: {e}")
