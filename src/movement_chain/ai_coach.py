@@ -19,7 +19,6 @@ Date: 2025-01-15
 """
 
 from dataclasses import asdict
-from typing import Any
 
 from .schemas import (
     BENCHMARKS,
@@ -99,22 +98,21 @@ class AICoach:
         imu = fused_data.imu_metrics
 
         # 峰值角速度
-        peak_velocity = imu.get("peak_angular_velocity_dps")
-        if peak_velocity is not None:
-            issue = self._check_metric(
-                metric_name="peak_angular_velocity_dps",
-                value=peak_velocity,
-                category="power",
-                description_low="挥杆速度较慢，力量输出不足",
-                description_high="挥杆速度过快，可能影响控制",
-                suggestion_low="增加核心力量训练，注意髋部旋转发力",
-                suggestion_high="适当减速，确保击球稳定性",
-            )
-            if issue:
-                issues.append(issue)
+        peak_velocity = imu.peak_angular_velocity_dps
+        issue = self._check_metric(
+            metric_name="peak_angular_velocity_dps",
+            value=peak_velocity,
+            category="power",
+            description_low="挥杆速度较慢，力量输出不足",
+            description_high="挥杆速度过快，可能影响控制",
+            suggestion_low="增加核心力量训练，注意髋部旋转发力",
+            suggestion_high="适当减速，确保击球稳定性",
+        )
+        if issue:
+            issues.append(issue)
 
         # 节奏比
-        tempo_ratio = imu.get("tempo_ratio")
+        tempo_ratio = imu.tempo_ratio
         if tempo_ratio is not None:
             benchmark = self.benchmarks.get("tempo_ratio", {})
             ideal = benchmark.get("ideal", (2.5, 3.5))
@@ -145,34 +143,32 @@ class AICoach:
                 )
 
         # 上杆时间
-        backswing = imu.get("backswing_duration_ms")
-        if backswing is not None:
-            issue = self._check_metric(
-                metric_name="backswing_duration_ms",
-                value=backswing,
-                category="timing",
-                description_low="上杆过快，可能影响蓄力",
-                description_high="上杆过慢，浪费动能",
-                suggestion_low="放慢上杆节奏，充分蓄力",
-                suggestion_high="适当加快上杆，保持流畅",
-            )
-            if issue:
-                issues.append(issue)
+        backswing = imu.backswing_duration_ms
+        issue = self._check_metric(
+            metric_name="backswing_duration_ms",
+            value=backswing,
+            category="timing",
+            description_low="上杆过快，可能影响蓄力",
+            description_high="上杆过慢，浪费动能",
+            suggestion_low="放慢上杆节奏，充分蓄力",
+            suggestion_high="适当加快上杆，保持流畅",
+        )
+        if issue:
+            issues.append(issue)
 
         # 下杆时间
-        downswing = imu.get("downswing_duration_ms")
-        if downswing is not None:
-            issue = self._check_metric(
-                metric_name="downswing_duration_ms",
-                value=downswing,
-                category="timing",
-                description_low="下杆爆发力强",  # 实际上这可能是好事
-                description_high="下杆过慢，缺乏爆发力",
-                suggestion_low="保持当前的爆发力",
-                suggestion_high="增加髋部和核心发力，提升下杆速度",
-            )
-            if issue:
-                issues.append(issue)
+        downswing = imu.downswing_duration_ms
+        issue = self._check_metric(
+            metric_name="downswing_duration_ms",
+            value=downswing,
+            category="timing",
+            description_low="下杆爆发力强",  # 实际上这可能是好事
+            description_high="下杆过慢，缺乏爆发力",
+            suggestion_low="保持当前的爆发力",
+            suggestion_high="增加髋部和核心发力，提升下杆速度",
+        )
+        if issue:
+            issues.append(issue)
 
         # Vision 指标分析
         vision = asdict(fused_data.vision_metrics)
@@ -296,9 +292,9 @@ class AICoach:
         phase_analysis = []
 
         for phase in fused_data.imu_phases:
-            name = phase.get("name", "unknown")
-            name_cn = phase.get("name_cn", name)
-            duration = phase.get("duration_ms", 0)
+            name = phase.name
+            name_cn = phase.name_cn
+            duration = phase.duration_ms
 
             # 根据阶段检查问题
             issues = []
@@ -344,7 +340,7 @@ class AICoach:
         imu = fused_data.imu_metrics
 
         # 使用峰值角速度作为主要指标
-        peak_velocity = imu.get("peak_angular_velocity_dps", 0)
+        peak_velocity = imu.peak_angular_velocity_dps
 
         benchmark = self.benchmarks.get("peak_angular_velocity_dps", {})
 
@@ -390,6 +386,9 @@ class AICoach:
         imu = fused_data.imu_metrics
         vision = asdict(fused_data.vision_metrics)
 
+        # Format tempo_ratio with fallback to 'N/A' if None
+        tempo_str = f"{imu.tempo_ratio:.2f}" if imu.tempo_ratio is not None else "N/A"
+
         prompt = f"""# 高尔夫挥杆分析报告
 
 ## 基本信息
@@ -397,11 +396,11 @@ class AICoach:
 - 整体水平评估: {overall_level}
 
 ## IMU 传感器数据 (手部运动)
-- 峰值角速度: {imu.get('peak_angular_velocity_dps', 'N/A')} °/s
-- 上杆时长: {imu.get('backswing_duration_ms', 'N/A')} ms
-- 下杆时长: {imu.get('downswing_duration_ms', 'N/A')} ms
-- 总挥杆时间: {imu.get('total_swing_time_ms', 'N/A')} ms
-- 节奏比 (上杆:下杆): {imu.get('tempo_ratio', 'N/A')}
+- 峰值角速度: {imu.peak_angular_velocity_dps:.0f} °/s
+- 上杆时长: {imu.backswing_duration_ms:.0f} ms
+- 下杆时长: {imu.downswing_duration_ms:.0f} ms
+- 总挥杆时间: {imu.total_swing_time_ms:.0f} ms
+- 节奏比 (上杆:下杆): {tempo_str}
 
 ## 视觉分析数据 (姿态)
 - X-Factor 最大值: {vision.get('x_factor_max_deg', 'N/A')}°
@@ -498,7 +497,9 @@ class AICoachV2:
         )
 
         print(f"[AICoachV2] 传感器: Vision={sensors.vision}, IMU={sensors.imu}")
-        print(f"[AICoachV2] 规则触发: {rule_triggers.rules_triggered}/{rule_triggers.rules_evaluated}")
+        print(
+            f"[AICoachV2] 规则触发: {rule_triggers.rules_triggered}/{rule_triggers.rules_evaluated}"
+        )
         print(f"[AICoachV2] 整体水平: {overall_level}")
 
         return prompt
@@ -544,7 +545,7 @@ class AICoachV2:
         # ========================================
 
         # 节奏比检查 (理想范围 2.5-3.5)
-        tempo_ratio = imu.get("tempo_ratio")
+        tempo_ratio = imu.tempo_ratio
         if tempo_ratio is not None:
             rules_evaluated += 1
             if tempo_ratio < 2.0 or tempo_ratio > 4.0:
@@ -572,20 +573,18 @@ class AICoachV2:
         # ========================================
 
         # 上杆过快检查 (低于 700ms)
-        backswing_duration = imu.get("backswing_duration_ms")
-        if backswing_duration is not None:
-            rules_evaluated += 1
-            if backswing_duration < 700:
-                triggers.backswing_too_fast = True
-                rules_triggered += 1
+        backswing_duration = imu.backswing_duration_ms
+        rules_evaluated += 1
+        if backswing_duration < 700:
+            triggers.backswing_too_fast = True
+            rules_triggered += 1
 
         # 下杆过慢检查 (超过 350ms)
-        downswing_duration = imu.get("downswing_duration_ms")
-        if downswing_duration is not None:
-            rules_evaluated += 1
-            if downswing_duration > 350:
-                triggers.downswing_too_slow = True
-                rules_triggered += 1
+        downswing_duration = imu.downswing_duration_ms
+        rules_evaluated += 1
+        if downswing_duration > 350:
+            triggers.downswing_too_slow = True
+            rules_triggered += 1
 
         # 前臂弯曲检查 (低于 70%)
         lead_arm = vision.get("lead_arm_extension_pct")
@@ -596,7 +595,7 @@ class AICoachV2:
                 rules_triggered += 1
 
         # 手腕过早释放检查 (释放点低于 50%)
-        wrist_release = imu.get("wrist_release_point")
+        wrist_release = imu.wrist_release_point_pct
         if wrist_release is not None:
             rules_evaluated += 1
             if wrist_release < 50.0:
@@ -608,12 +607,11 @@ class AICoachV2:
         # ========================================
 
         # 峰值速度低于业余水平 (低于 600 °/s)
-        peak_velocity = imu.get("peak_angular_velocity_dps")
-        if peak_velocity is not None:
-            rules_evaluated += 1
-            if peak_velocity < 600:
-                triggers.velocity_below_amateur = True
-                rules_triggered += 1
+        peak_velocity = imu.peak_angular_velocity_dps
+        rules_evaluated += 1
+        if peak_velocity < 600:
+            triggers.velocity_below_amateur = True
+            rules_triggered += 1
 
         # 更新统计
         triggers.rules_evaluated = rules_evaluated
@@ -626,7 +624,7 @@ class AICoachV2:
         imu = fused_data.imu_metrics
 
         # 使用峰值角速度作为主要指标
-        peak_velocity = imu.get("peak_angular_velocity_dps", 0)
+        peak_velocity = imu.peak_angular_velocity_dps
 
         benchmark = self.benchmarks.get("peak_angular_velocity_dps", {})
 

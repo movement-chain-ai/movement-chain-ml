@@ -213,9 +213,9 @@ class FusedSwingData:
     vision_fps: float
     vision_metrics: VisionMetrics
 
-    # IMU 结果 (使用字典存储，兼容 imu_swing_analyzer 输出)
-    imu_phases: list[dict[str, Any]]  # SwingPhase 转换为 dict
-    imu_metrics: dict[str, Any]  # SwingMetrics 转换为 dict
+    # IMU 结果 (直接使用 dataclass，在序列化时转换为 dict)
+    imu_phases: list[SwingPhase]
+    imu_metrics: SwingMetrics
     imu_report: dict[str, Any]  # 完整报告
 
     # V2: 逐阶段指标 (由 SensorFusion.aggregate_phase_metrics 填充)
@@ -231,8 +231,8 @@ class FusedSwingData:
             "alignment_offset_ms": self.alignment_offset_ms,
             "vision_fps": self.vision_fps,
             "vision_metrics": asdict(self.vision_metrics),
-            "imu_phases": self.imu_phases,
-            "imu_metrics": self.imu_metrics,
+            "imu_phases": [asdict(p) for p in self.imu_phases],
+            "imu_metrics": asdict(self.imu_metrics),
             "frame_count": len(self.frames),
             # 不保存完整帧数据，太大
         }
@@ -569,9 +569,7 @@ class KinematicPromptV2:
                     "imu": self.imu_global_metrics,
                     "vision": self.vision_global_metrics,
                 },
-                "per_phase": [
-                    self._phase_to_dict(p) for p in self.phases
-                ],
+                "per_phase": [self._phase_to_dict(p) for p in self.phases],
             },
             "rule_triggers": asdict(self.rule_triggers),
             "visualization_file": self.visualization_file,
@@ -590,8 +588,16 @@ class KinematicPromptV2:
 
         # 添加阶段特定指标
         phase_specific = None
-        for attr in ["address", "takeaway", "backswing", "top",
-                     "downswing", "impact", "follow_through", "finish"]:
+        for attr in [
+            "address",
+            "takeaway",
+            "backswing",
+            "top",
+            "downswing",
+            "impact",
+            "follow_through",
+            "finish",
+        ]:
             specific = getattr(phase, attr, None)
             if specific is not None:
                 phase_specific = asdict(specific)

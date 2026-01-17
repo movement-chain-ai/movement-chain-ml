@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from .schemas import (
     AddressPhaseMetrics,
     BackswingPhaseMetrics,
@@ -34,6 +35,8 @@ from .schemas import (
     PhaseTimingMetrics,
     PhaseVisionMetrics,
     PoseFrame,
+    SwingMetrics,
+    SwingPhase,
     TakeawayPhaseMetrics,
     TopPhaseMetrics,
     VisionResult,
@@ -51,8 +54,8 @@ class SensorFusion:
         self,
         vision_result: VisionResult,
         imu_df: pd.DataFrame,
-        imu_phases: list[dict[str, Any]],
-        imu_metrics: dict[str, Any],
+        imu_phases: list[SwingPhase],
+        imu_metrics: SwingMetrics,
         imu_report: dict[str, Any],
         manual_impact_frame: int | None = None,
     ) -> FusedSwingData:
@@ -62,8 +65,8 @@ class SensorFusion:
         Args:
             vision_result: 视频分析结果
             imu_df: IMU 数据 DataFrame (来自 imu_swing_analyzer)
-            imu_phases: 阶段列表 (SwingPhase 转为 dict)
-            imu_metrics: 指标 (SwingMetrics 转为 dict)
+            imu_phases: 阶段列表 (SwingPhase dataclass)
+            imu_metrics: 指标 (SwingMetrics dataclass)
             imu_report: 完整报告
             manual_impact_frame: 手动指定的 Impact 帧 (可选)
 
@@ -124,12 +127,12 @@ class SensorFusion:
         print("[SensorFusion] 融合完成!")
         return fused_data
 
-    def _find_imu_impact(self, imu_df: pd.DataFrame, imu_phases: list[dict[str, Any]]) -> int:
+    def _find_imu_impact(self, imu_df: pd.DataFrame, imu_phases: list[SwingPhase]) -> int:
         """从 IMU 数据找到 Impact 时刻索引"""
         # 方法 1: 从阶段中查找
         for phase in imu_phases:
-            if phase.get("name", "").lower() == "impact":
-                return phase.get("start_idx", 0)
+            if phase.name.lower() == "impact":
+                return phase.start_idx
 
         # 方法 2: 找陀螺仪峰值
         if "gyro_magnitude" in imu_df.columns:
@@ -166,7 +169,7 @@ class SensorFusion:
         self,
         vision_result: VisionResult,
         imu_df: pd.DataFrame,
-        imu_phases: list[dict[str, Any]],
+        imu_phases: list[SwingPhase],
         time_offset_ms: float,
     ) -> list[FusedFrame]:
         """
@@ -232,14 +235,14 @@ class SensorFusion:
 
         return fused_frames
 
-    def _build_phase_map(self, imu_phases: list[dict[str, Any]]) -> dict[int, tuple[str, str]]:
+    def _build_phase_map(self, imu_phases: list[SwingPhase]) -> dict[int, tuple[str, str]]:
         """构建索引到阶段的映射"""
         phase_map = {}
         for phase in imu_phases:
-            start_idx = phase.get("start_idx", 0)
-            end_idx = phase.get("end_idx", start_idx)
-            name = phase.get("name", "unknown")
-            name_cn = phase.get("name_cn", name)
+            start_idx = phase.start_idx
+            end_idx = phase.end_idx
+            name = phase.name
+            name_cn = phase.name_cn
             for i in range(int(start_idx), int(end_idx) + 1):
                 phase_map[i] = (name, name_cn)
         return phase_map
@@ -324,14 +327,14 @@ class SensorFusion:
     def aggregate_phase_metrics(
         self,
         fused_frames: list[FusedFrame],
-        imu_phases: list[dict[str, Any]],
+        imu_phases: list[SwingPhase],
     ) -> list[PerPhaseMetrics]:
         """
         聚合每个阶段的指标
 
         Args:
             fused_frames: 融合帧列表
-            imu_phases: IMU 阶段列表 (dict 格式)
+            imu_phases: IMU 阶段列表 (SwingPhase dataclass)
 
         Returns:
             list[PerPhaseMetrics] 每阶段的完整指标
@@ -340,16 +343,13 @@ class SensorFusion:
         phase_metrics_list = []
 
         for phase_info in imu_phases:
-            phase_name = phase_info.get("name", "unknown")
-            phase_name_cn = phase_info.get("name_cn", phase_name)
-            start_idx = phase_info.get("start_idx", 0)
-            end_idx = phase_info.get("end_idx", start_idx)
+            phase_name = phase_info.name
+            phase_name_cn = phase_info.name_cn
+            start_idx = phase_info.start_idx
+            end_idx = phase_info.end_idx
 
             # 过滤该阶段的帧
-            phase_frames = [
-                f for f in fused_frames
-                if start_idx <= f.frame_idx <= end_idx
-            ]
+            phase_frames = [f for f in fused_frames if start_idx <= f.frame_idx <= end_idx]
 
             if not phase_frames:
                 continue
@@ -381,17 +381,15 @@ class SensorFusion:
     def _compute_timing_metrics(
         self,
         frames: list[FusedFrame],
-        phase_info: dict[str, Any],
+        phase_info: SwingPhase,
     ) -> PhaseTimingMetrics:
         """计算阶段时间指标"""
         if not frames:
-            return PhaseTimingMetrics(
-                start_ms=0, end_ms=0, duration_ms=0, frame_count=0
-            )
+            return PhaseTimingMetrics(start_ms=0, end_ms=0, duration_ms=0, frame_count=0)
 
         start_ms = frames[0].timestamp_ms
         end_ms = frames[-1].timestamp_ms
-        duration_ms = phase_info.get("duration_ms", end_ms - start_ms)
+        duration_ms = phase_info.duration_ms
 
         return PhaseTimingMetrics(
             start_ms=start_ms,
@@ -514,13 +512,9 @@ class SensorFusion:
         elif phase_lower == "downswing":
             result["downswing"] = self._compute_downswing_metrics(frames, imu_metrics)
         elif phase_lower == "impact":
-            result["impact"] = self._compute_impact_metrics(
-                frames, imu_metrics, vision_metrics
-            )
+            result["impact"] = self._compute_impact_metrics(frames, imu_metrics, vision_metrics)
         elif phase_lower in ["follow_through", "follow-through", "followthrough"]:
-            result["follow_through"] = self._compute_follow_through_metrics(
-                frames, imu_metrics
-            )
+            result["follow_through"] = self._compute_follow_through_metrics(frames, imu_metrics)
         elif phase_lower == "finish":
             result["finish"] = self._compute_finish_metrics(frames, imu_metrics)
 

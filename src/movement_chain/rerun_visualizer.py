@@ -18,7 +18,6 @@ Date: 2025-01-15
 """
 
 from pathlib import Path
-from typing import Any
 
 import cv2
 import numpy as np
@@ -32,12 +31,7 @@ except ImportError:
     print("[WARN] rerun-sdk 未安装，可视化功能不可用")
     print("       运行: pip install rerun-sdk>=0.20.0")
 
-from .schemas import (
-    PHASE_COLORS,
-    POSE_CONNECTIONS,
-    FusedFrame,
-    FusedSwingData,
-)
+from .schemas import PHASE_COLORS, POSE_CONNECTIONS, FusedFrame, FusedSwingData, SwingPhase
 
 
 class RerunVisualizer:
@@ -176,6 +170,9 @@ class RerunVisualizer:
 
     def _log_metadata(self, fused_data: FusedSwingData) -> None:
         """记录元数据"""
+        imu = fused_data.imu_metrics
+        tempo_str = f"{imu.tempo_ratio:.2f}" if imu.tempo_ratio is not None else "N/A"
+
         rr.log(
             "metadata",
             rr.TextDocument(
@@ -193,23 +190,23 @@ class RerunVisualizer:
 - Lead Arm Extension: {fused_data.vision_metrics.lead_arm_extension_pct}%
 
 ## IMU Metrics
-- Peak Velocity: {fused_data.imu_metrics.get('peak_angular_velocity_dps', 'N/A')} °/s
-- Tempo Ratio: {fused_data.imu_metrics.get('tempo_ratio', 'N/A')}
-- Total Swing Time: {fused_data.imu_metrics.get('total_swing_time_ms', 'N/A')} ms
+- Peak Velocity: {imu.peak_angular_velocity_dps:.0f} °/s
+- Tempo Ratio: {tempo_str}
+- Total Swing Time: {imu.total_swing_time_ms:.0f} ms
 """,
                 media_type=rr.MediaType.MARKDOWN,
             ),
             static=True,
         )
 
-    def _log_phases(self, imu_phases: list[dict[str, Any]]) -> None:
+    def _log_phases(self, imu_phases: list[SwingPhase]) -> None:
         """记录阶段信息到 Rerun"""
         for phase in imu_phases:
-            phase_name = phase.get("name", "unknown")
-            phase_cn = phase.get("name_cn", phase_name)
-            start_ms = phase.get("start_time_ms", 0)
-            end_ms = phase.get("end_time_ms", 0)
-            duration = phase.get("duration_ms", 0)
+            phase_name = phase.name
+            phase_cn = phase.name_cn
+            start_ms = phase.start_time_ms
+            end_ms = phase.end_time_ms
+            duration = phase.duration_ms
 
             # 记录阶段标记
             rr.log(

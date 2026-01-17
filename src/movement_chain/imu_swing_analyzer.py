@@ -8,10 +8,10 @@ Date: 2026-01-14
 """
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, Dict, List, Optional, Tuple
+from typing import ClassVar
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,7 +30,7 @@ class IMUConfig:
     """IMU 配置参数"""
 
     # MPU6050 灵敏度设置 (LSB per °/s)
-    GYRO_SENSITIVITY: ClassVar[Dict[int, float]] = {
+    GYRO_SENSITIVITY: ClassVar[dict[int, float]] = {
         250: 131.0,  # ±250°/s
         500: 65.5,  # ±500°/s
         1000: 32.8,  # ±1000°/s
@@ -77,7 +77,7 @@ def load_imu_data(filepath: str) -> pd.DataFrame:
     # Read file with error handling
     try:
         # Count rows before skipping bad lines
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             total_lines = sum(1 for line in f if not line.startswith("#"))
 
         df = pd.read_csv(
@@ -197,7 +197,7 @@ def isolate_swing(
     window_before_ms: float = 2000,
     window_after_ms: float = 1500,
     min_peak_velocity: float = 300,
-) -> Tuple[pd.DataFrame, Dict]:
+) -> tuple[pd.DataFrame, dict]:
     """
     从数据中自动隔离单次挥杆
 
@@ -264,7 +264,7 @@ def isolate_swing(
         "data_reduction_pct": round((1 - len(segment) / len(df)) * 100, 1),
     }
 
-    print(f"✅ 挥杆隔离完成:")
+    print("✅ 挥杆隔离完成:")
     print(f"   原始时长: {original_duration:.0f}ms → 隔离后: {end_time - start_time:.0f}ms")
     print(
         f"   数据量: {len(df)} 行 → {len(segment)} 行 (减少 {isolation_info['data_reduction_pct']:.0f}%)"
@@ -279,7 +279,7 @@ def isolate_swing(
 # ============================================================
 
 
-def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) -> List[SwingPhase]:
+def detect_swing_phases(df: pd.DataFrame, config: IMUConfig | None = None) -> list[SwingPhase]:
     """
     检测挥杆的 8 个阶段
 
@@ -491,7 +491,7 @@ def detect_swing_phases(df: pd.DataFrame, config: Optional[IMUConfig] = None) ->
 # ============================================================
 
 
-def calculate_wrist_release_point(df: pd.DataFrame, phases: List[SwingPhase]) -> Optional[float]:
+def calculate_wrist_release_point(df: pd.DataFrame, phases: list[SwingPhase]) -> float | None:
     """
     计算手腕释放点 (Wrist Cock Release Point)
 
@@ -539,7 +539,7 @@ def calculate_wrist_release_point(df: pd.DataFrame, phases: List[SwingPhase]) ->
     return round(progress, 1)
 
 
-def calculate_acceleration_time(df: pd.DataFrame, phases: List[SwingPhase]) -> Optional[float]:
+def calculate_acceleration_time(df: pd.DataFrame, phases: list[SwingPhase]) -> float | None:
     """
     计算加速时段 (Acceleration Time)
 
@@ -577,7 +577,7 @@ def calculate_acceleration_time(df: pd.DataFrame, phases: List[SwingPhase]) -> O
     return round(acceleration_time, 1) if acceleration_time > 0 else None
 
 
-def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetrics:
+def calculate_metrics(df: pd.DataFrame, phases: list[SwingPhase]) -> SwingMetrics:
     """
     计算挥杆核心指标 (完整 7 项)
 
@@ -612,7 +612,7 @@ def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetric
         print(
             f"⚠️ 警告: 下杆时长无效 ({downswing_duration}ms)。" "阶段检测可能失败，节奏比无法计算。"
         )
-        tempo_ratio: Optional[float] = None
+        tempo_ratio: float | None = None
     else:
         tempo_ratio = backswing_duration / downswing_duration
 
@@ -709,9 +709,9 @@ def calculate_metrics(df: pd.DataFrame, phases: List[SwingPhase]) -> SwingMetric
 
 def plot_swing_analysis(
     df: pd.DataFrame,
-    phases: List[SwingPhase],
+    phases: list[SwingPhase],
     metrics: SwingMetrics,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     show_plot: bool = True,
 ) -> None:
     """
@@ -805,7 +805,7 @@ def plot_swing_analysis(
 
     # 图例 (去重)
     handles, labels = ax2.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
+    by_label = dict(zip(labels, handles, strict=False))
     ax2.legend(by_label.values(), by_label.keys(), loc="upper left", fontsize=8)
 
     # 添加 X 轴标签
@@ -834,11 +834,11 @@ def plot_swing_analysis(
 
 
 def generate_report(
-    phases: List[SwingPhase],
+    phases: list[SwingPhase],
     metrics: SwingMetrics,
-    output_path: Optional[str] = None,
-    isolation_info: Optional[Dict] = None,
-) -> Dict:
+    output_path: str | None = None,
+    isolation_info: dict | None = None,
+) -> dict:
     """
     生成 JSON 格式的分析报告
 
@@ -938,12 +938,12 @@ def generate_report(
 def analyze_swing(
     filepath: str,
     gyro_range: int = 2000,
-    output_dir: Optional[str] = None,
+    output_dir: str | None = None,
     show_plot: bool = True,
     auto_isolate: bool = True,
     window_before_ms: float = 2000,
     window_after_ms: float = 1500,
-) -> Tuple[pd.DataFrame, List[SwingPhase], SwingMetrics, Dict]:
+) -> tuple[pd.DataFrame, list[SwingPhase], SwingMetrics, dict]:
     """
     执行完整的挥杆分析
 
@@ -1017,7 +1017,9 @@ def analyze_swing(
     print(
         f"总挥杆时间:   {metrics.total_swing_time_ms:>7.0f}ms   ({_evaluate_duration(metrics.total_swing_time_ms, 950, 1100)})"
     )
-    print(f"节奏比:       {metrics.tempo_ratio if metrics.tempo_ratio is not None else 'N/A':>7}     ({metrics.tempo_level})")
+    print(
+        f"节奏比:       {metrics.tempo_ratio if metrics.tempo_ratio is not None else 'N/A':>7}     ({metrics.tempo_level})"
+    )
     print(
         f"手腕释放点:   {_format_optional(metrics.wrist_release_point_pct, '%')}  ({metrics.wrist_release_level})"
     )
@@ -1041,7 +1043,7 @@ def _evaluate_duration(value: float, min_pro: float, max_pro: float) -> str:
         return "偏慢"
 
 
-def _format_optional(value: Optional[float], unit: str) -> str:
+def _format_optional(value: float | None, unit: str) -> str:
     """格式化可选值"""
     if value is None:
         return "   N/A  "

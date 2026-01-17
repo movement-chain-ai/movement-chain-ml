@@ -24,7 +24,7 @@ Date: 2025-01-15
 import argparse
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict  # Used for vision_metrics_data serialization
 from datetime import datetime
 from pathlib import Path
 
@@ -139,14 +139,10 @@ def run_pipeline(
         auto_isolate=True,
     )
 
-    # 转换为字典格式
-    imu_phases_dict = [asdict(p) for p in imu_phases]
-    imu_metrics_dict = asdict(imu_metrics)
-
     print(f"  ✅ 检测到 {len(imu_phases)} 个阶段")
     print(f"  ✅ 峰值角速度: {imu_metrics.peak_angular_velocity_dps:.0f}°/s")
-    print(f"  ✅ IMU 分析图: imu/swing_analysis.png")
-    print(f"  ✅ IMU 报告: imu/swing_report.json")
+    print("  ✅ IMU 分析图: imu/swing_analysis.png")
+    print("  ✅ IMU 报告: imu/swing_report.json")
     print()
 
     # ========================================
@@ -159,8 +155,8 @@ def run_pipeline(
     fused_data = fusion.fuse(
         vision_result=vision_result,
         imu_df=imu_df,
-        imu_phases=imu_phases_dict,
-        imu_metrics=imu_metrics_dict,
+        imu_phases=imu_phases,
+        imu_metrics=imu_metrics,
         imu_report=imu_report,
     )
 
@@ -224,7 +220,7 @@ def run_pipeline(
     # 保存 Kinematic Prompt
     kinematic_prompt.save(str(prompt_file))
 
-    print(f"  ✅ Kinematic Prompt: kinematic_prompt.json")
+    print("  ✅ Kinematic Prompt: kinematic_prompt.json")
     print()
 
     # ========================================
@@ -281,7 +277,7 @@ def run_pipeline(
     print("  下一步:")
     if rerun_file:
         print(f"    1. 运行 'rerun {rerun_file}' 查看 3D 可视化")
-    print(f"    2. 将 kinematic_prompt.json 内容粘贴到 Claude/ChatGPT 获取详细反馈")
+    print("    2. 将 kinematic_prompt.json 内容粘贴到 Claude/ChatGPT 获取详细反馈")
     print("=" * 70)
 
     return kinematic_prompt
