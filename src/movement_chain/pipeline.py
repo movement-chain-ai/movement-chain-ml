@@ -9,7 +9,7 @@ Movement Chain - Fusion Pipeline (融合 Pipeline)
     python pipeline.py --video swing.mp4 --imu swing.csv
 
     # 指定输出目录
-    python pipeline.py --video swing.mp4 --imu swing.csv --output output/session1
+    python pipeline.py --video swing.mp4 --imu swing.csv --output output
 
     # 启动 Rerun Viewer
     python pipeline.py --video swing.mp4 --imu swing.csv --spawn-viewer
@@ -22,6 +22,7 @@ Date: 2025-01-15
 """
 
 import argparse
+import json
 import sys
 from dataclasses import asdict
 from datetime import datetime
@@ -51,7 +52,7 @@ def run_pipeline(
     Args:
         video_path: 视频文件路径
         imu_path: IMU CSV 文件路径
-        output_dir: 输出目录
+        output_dir: 输出根目录 (session 子目录会自动创建)
         spawn_viewer: 是否启动 Rerun Viewer
         gyro_range: IMU 陀螺仪量程 (250, 500, 1000, 2000)
         downsample_factor: Rerun 降采样因子
@@ -60,16 +61,39 @@ def run_pipeline(
 
     Returns:
         KinematicPromptV2 (use_v2=True) 或 KinematicPrompt (use_v2=False)
+
+    Output Structure:
+        output/
+        └── session_{timestamp}/
+            ├── swing.rrd              (Rerun 可视化)
+            ├── kinematic_prompt.json  (AI 输入)
+            ├── imu/
+            │   ├── analysis.png       (IMU 相位分析图)
+            │   └── report.json        (IMU 详细报告)
+            └── vision/
+                └── metrics.json       (Vision 指标)
     """
     print("=" * 70)
     print("  Movement Chain - Fusion Pipeline")
     print("=" * 70)
     print()
 
-    # 创建输出目录
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    # ========================================
+    # 创建 Session 目录结构
+    # ========================================
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = Path(output_dir) / f"session_{session_id}"
+    imu_dir = session_dir / "imu"
+    vision_dir = session_dir / "vision"
+
+    # 创建目录
+    session_dir.mkdir(parents=True, exist_ok=True)
+    imu_dir.mkdir(exist_ok=True)
+    vision_dir.mkdir(exist_ok=True)
+
+    print(f"  Session: {session_id}")
+    print(f"  输出目录: {session_dir}")
+    print()
 
     # ========================================
     # Step 1: 视频分析 (MediaPipe)
@@ -83,6 +107,22 @@ def run_pipeline(
 
     print(f"  ✅ 检测到 {len(vision_result.frames)} 帧")
     print(f"  ✅ Impact 帧: {vision_result.impact_frame_idx}")
+
+    # 保存 Vision 指标
+    vision_metrics_file = vision_dir / "metrics.json"
+    vision_metrics_data = {
+        "video_file": vision_result.video_file,
+        "fps": vision_result.fps,
+        "total_frames": vision_result.total_frames,
+        "width": vision_result.width,
+        "height": vision_result.height,
+        "impact_frame_idx": vision_result.impact_frame_idx,
+        "impact_confidence": vision_result.impact_confidence,
+        "metrics": asdict(vision_result.metrics),
+    }
+    with open(vision_metrics_file, "w", encoding="utf-8") as f:
+        json.dump(vision_metrics_data, f, indent=2, ensure_ascii=False)
+    print(f"  ✅ Vision 指标: {vision_metrics_file.relative_to(session_dir)}")
     print()
 
     # ========================================
@@ -94,7 +134,7 @@ def run_pipeline(
     imu_df, imu_phases, imu_metrics, imu_report = analyze_swing(
         filepath=imu_path,
         gyro_range=gyro_range,
-        output_dir=None,  # 不单独保存
+        output_dir=str(imu_dir),  # 保存 IMU 分析图表和报告
         show_plot=False,
         auto_isolate=True,
     )
@@ -105,6 +145,8 @@ def run_pipeline(
 
     print(f"  ✅ 检测到 {len(imu_phases)} 个阶段")
     print(f"  ✅ 峰值角速度: {imu_metrics.peak_angular_velocity_dps:.0f}°/s")
+    print(f"  ✅ IMU 分析图: imu/swing_analysis.png")
+    print(f"  ✅ IMU 报告: imu/swing_report.json")
     print()
 
     # ========================================
@@ -133,9 +175,11 @@ def run_pipeline(
     print("-" * 70)
 
     rerun_file = None
+    rerun_relative_path = None
     if RERUN_AVAILABLE:
         visualizer = RerunVisualizer()
-        rerun_file = str(output_path / f"{session_id}_swing.rrd")
+        rerun_file = str(session_dir / "swing.rrd")
+        rerun_relative_path = "swing.rrd"
 
         visualizer.visualize_swing(
             fused_data=fused_data,
@@ -145,7 +189,7 @@ def run_pipeline(
             video_path=video_path,
         )
 
-        print(f"  ✅ Rerun 文件: {rerun_file}")
+        print(f"  ✅ Rerun 文件: {rerun_relative_path}")
         if spawn_viewer:
             print("  ✅ Rerun Viewer 已启动")
     else:
@@ -165,22 +209,22 @@ def run_pipeline(
         coach = AICoachV2()
         kinematic_prompt = coach.generate_kinematic_prompt(
             fused_data=fused_data,
-            visualization_file=rerun_file,
+            visualization_file=rerun_relative_path,  # 使用相对路径
         )
-        prompt_file = output_path / f"{session_id}_kinematic_prompt_v2.json"
+        prompt_file = session_dir / "kinematic_prompt.json"
     else:
         # V1: 传统格式 (带文本建议)
         coach = AICoach()
         kinematic_prompt = coach.generate_kinematic_prompt(
             fused_data=fused_data,
-            visualization_file=rerun_file,
+            visualization_file=rerun_relative_path,
         )
-        prompt_file = output_path / f"{session_id}_kinematic_prompt.json"
+        prompt_file = session_dir / "kinematic_prompt.json"
 
     # 保存 Kinematic Prompt
     kinematic_prompt.save(str(prompt_file))
 
-    print(f"  ✅ Kinematic Prompt: {prompt_file}")
+    print(f"  ✅ Kinematic Prompt: kinematic_prompt.json")
     print()
 
     # ========================================
@@ -190,14 +234,18 @@ def run_pipeline(
     print("  Pipeline 完成!")
     print("=" * 70)
     print()
-    print(f"  输出目录: {output_path}")
-    print(f"  Session ID: {session_id}")
-    print(f"  输出格式: {'V2 (纯数据)' if use_v2 else 'V1 (含文本建议)'}")
+    print(f"  Session 目录: {session_dir}")
     print()
     print("  生成文件:")
-    print(f"    - {prompt_file.name} (AI 输入)")
+    print(f"    📁 {session_dir.name}/")
+    print("    ├── kinematic_prompt.json  (AI 输入)")
     if rerun_file:
-        print(f"    - {Path(rerun_file).name} (Rerun 可视化)")
+        print("    ├── swing.rrd              (Rerun 可视化)")
+    print("    ├── imu/")
+    print("    │   ├── swing_analysis.png  (IMU 相位分析图)")
+    print("    │   └── swing_report.json   (IMU 详细报告)")
+    print("    └── vision/")
+    print("        └── metrics.json        (Vision 指标)")
     print()
     print("  整体评估:")
     print(f"    - 水平: {kinematic_prompt.overall_level}")
@@ -233,7 +281,7 @@ def run_pipeline(
     print("  下一步:")
     if rerun_file:
         print(f"    1. 运行 'rerun {rerun_file}' 查看 3D 可视化")
-    print(f"    2. 将 {prompt_file.name} 内容粘贴到 Claude/ChatGPT 获取详细反馈")
+    print(f"    2. 将 kinematic_prompt.json 内容粘贴到 Claude/ChatGPT 获取详细反馈")
     print("=" * 70)
 
     return kinematic_prompt
@@ -248,7 +296,7 @@ def main():
 示例:
   python pipeline.py --video swing.mp4 --imu swing.csv
   python pipeline.py --video swing.mp4 --imu swing.csv --spawn-viewer
-  python pipeline.py --video swing.mp4 --imu swing.csv --output output/my_session
+  python pipeline.py --video swing.mp4 --imu swing.csv --output my_output
         """,
     )
 
@@ -270,7 +318,7 @@ def main():
         "--output",
         "-o",
         default="output",
-        help="输出目录 (默认: output)",
+        help="输出根目录 (默认: output, session 子目录自动创建)",
     )
 
     parser.add_argument(
